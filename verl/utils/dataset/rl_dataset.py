@@ -391,7 +391,13 @@ class DummyJanusDPORLHFDataset(Dataset):
         """
         row_dict = {}
 
-        chat = "dummy chat"
+        chat = [
+            {
+                "role": "<|User|>",
+                "content": "A stunning princess from kabul in red, white traditional clothing, blue eyes, brown hair",
+            },
+            {"role": "<|Assistant|>", "content": ""},
+        ]
         
         sft_format = self.processor.apply_sft_template_for_multi_turn_prompts(
             conversations=chat,

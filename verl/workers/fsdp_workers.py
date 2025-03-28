@@ -234,9 +234,9 @@ class ActorRolloutRefWorker(Worker):
             actor_module.to(torch_dtype)
 
             if enable_gradient_checkpointing:
-                try:
+                if actor_module.supports_gradient_checkpointing:
                     actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
-                except AttributeError:
+                else:
                     warnings.warn('Gradient checkpointing is not supported in this model')
         torch.distributed.barrier()
 

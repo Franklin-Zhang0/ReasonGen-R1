@@ -87,9 +87,14 @@ class TaskRunner:
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
 
         # instantiate tokenizer
-        from verl.utils import hf_tokenizer, hf_processor
-        tokenizer = hf_tokenizer(local_path)
-        processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
+        if "Janus" not in local_path:
+            from verl.utils import hf_tokenizer, hf_processor
+            tokenizer = hf_tokenizer(local_path)
+            processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
+        else:
+            from janus.models import MultiModalityCausalLM, VLChatProcessor
+            processor: VLChatProcessor = VLChatProcessor.from_pretrained(local_path)
+            tokenizer = processor.tokenizer
 
         # define worker classes
         if config.actor_rollout_ref.actor.strategy == 'fsdp':
