@@ -158,49 +158,68 @@ class ActorRolloutRefWorker(Worker):
 
         log_gpu_memory_usage('Before init from HF AutoModel', logger=logger)
         local_path = copy_to_local(model_path)
+        
+        if 'Janus' not in local_path: # janus is not in huggingface cfg yet
+            # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
+            # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
+            self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
+            self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
 
-        # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
-        # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
-        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
-        self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
+            
+            # override model kwargs
+            actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
 
+            self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
+
+            override_config_kwargs = {
+                'bos_token_id': self.tokenizer.bos_token_id,
+                'eos_token_id': self.tokenizer.eos_token_id,
+                'pad_token_id': self.tokenizer.pad_token_id,
+            }
+            override_config_kwargs.update(override_model_config)
+            update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
+            if self.rank == 0:
+                print(f'Model config after override: {actor_model_config}')
+            # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
+            init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings,
+                                                       mesh=self.device_mesh)
+        
+        else:
+            from janus.models import MultiModalityCausalLM, VLChatProcessor
+            self.processor: VLChatProcessor = VLChatProcessor.from_pretrained(local_path)
+            self.tokenizer = self.processor.tokenizer
+            init_context = get_init_weight_context_manager(use_meta_tensor=True,
+                                                       mesh=self.device_mesh)
+            
         torch_dtype = fsdp_config.get('model_dtype', None)
         if torch_dtype is None:
             torch_dtype = torch.float32 if self._is_actor else torch.bfloat16
         else:
             torch_dtype = PrecisionType.to_dtype(torch_dtype)
 
-        # override model kwargs
-        actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
-
-        self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
-
-        override_config_kwargs = {
-            'bos_token_id': self.tokenizer.bos_token_id,
-            'eos_token_id': self.tokenizer.eos_token_id,
-            'pad_token_id': self.tokenizer.pad_token_id,
-        }
-        override_config_kwargs.update(override_model_config)
-        update_model_config(actor_model_config, override_config_kwargs=override_config_kwargs)
-        if self.rank == 0:
-            print(f'Model config after override: {actor_model_config}')
-
-        # NOTE(fix me): tie_word_embedding causes meta_tensor init to hang
-        init_context = get_init_weight_context_manager(use_meta_tensor=not actor_model_config.tie_word_embeddings,
-                                                       mesh=self.device_mesh)
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
-                actor_module_class = AutoModelForVision2Seq
-            else:
-                actor_module_class = AutoModelForCausalLM
+            if 'Janus' not in local_path:
+                if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
+                    actor_module_class = AutoModelForVision2Seq
+                else:
+                    actor_module_class = AutoModelForCausalLM
 
-            actor_module = actor_module_class.from_pretrained(pretrained_model_name_or_path=local_path,
-                                                              torch_dtype=torch_dtype,
-                                                              config=actor_model_config,
-                                                              attn_implementation='flash_attention_2',
-                                                              trust_remote_code=trust_remote_code)
+                actor_module = actor_module_class.from_pretrained(pretrained_model_name_or_path=local_path,
+                                                                torch_dtype=torch_dtype,
+                                                                config=actor_model_config,
+                                                                attn_implementation='flash_attention_2',
+                                                                trust_remote_code=trust_remote_code)
+            else:
+                actor_module = AutoModelForCausalLM.from_pretrained(
+                    local_path,
+                    torch_dtype=torch_dtype,
+                    trust_remote_code=True
+                    )
+                actor_model_config = actor_module.config
+                if self.rank == 0:
+                    print(f'Janus model config: {actor_model_config}')
 
             if use_remove_padding or self.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
@@ -215,7 +234,10 @@ class ActorRolloutRefWorker(Worker):
             actor_module.to(torch_dtype)
 
             if enable_gradient_checkpointing:
-                actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
+                try:
+                    actor_module.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
+                except AttributeError:
+                    warnings.warn('Gradient checkpointing is not supported in this model')
         torch.distributed.barrier()
 
         if self.rank == 0:
