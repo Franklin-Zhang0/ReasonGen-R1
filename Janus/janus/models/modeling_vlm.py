@@ -32,7 +32,6 @@ from transformers.configuration_utils import PretrainedConfig
 from janus.models.clip_encoder import CLIPVisionTower
 from janus.models.projector import MlpProjector
 
-
 class vision_head(torch.nn.Module):
     def __init__(self, params):
         super().__init__()
@@ -261,6 +260,68 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
 
     def prepare_gen_img_embeds(self, image_ids: torch.LongTensor):
         return self.gen_aligner(self.gen_embed(image_ids))
+
+    # only implement image mode for now
+    @torch.inference_mode()
+    def generate(self, 
+                 input_ids, 
+                 attention_mask, 
+                 do_sample, 
+                 max_new_tokens, 
+                 eos_token_id, 
+                 pad_token_id, 
+                 generation_config=None, 
+                 output_scores=False, 
+                 return_dict_in_generate=True, 
+                 use_cache=True
+                ):
+        cfg_weight = generation_config.get("cfg_weight", 5.0)
+        image_token_num_per_image = generation_config.get("image_token_num_per_image", 576)
+        img_size = generation_config.get("img_size", 384)
+        patch_size = generation_config.get("patch_size", 16)
+        temperature = generation_config.get("temperature", 1.0)
+        
+        parallel_size = input_ids.shape[0]
+        
+        tokens = torch.zeros((parallel_size*2, input_ids.shape[1]), dtype=torch.int).cuda()
+        for i in range(parallel_size*2):
+            tokens[i, :] = input_ids
+            if i % 2 != 0:
+                tokens[i, 1:-1] = pad_token_id
+                
+        inputs_embeds = self.language_model.get_input_embeddings()(tokens)
+                
+        generated_tokens = torch.zeros((parallel_size, max_new_tokens), dtype=torch.int).cuda()
+        
+        for i in range(image_token_num_per_image):
+            outputs = self.language_model.model(inputs_embeds=inputs_embeds, use_cache=True, past_key_values=outputs.past_key_values if i != 0 else None)
+            hidden_states = outputs.last_hidden_state
+            
+            logits = self.gen_head(hidden_states[:, -1, :])
+            logit_cond = logits[0::2, :]
+            logit_uncond = logits[1::2, :]
+            
+            logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
+            
+            if not do_sample:
+                next_token = torch.argmax(logits, dim=-1)
+            else:
+                probs = torch.softmax(logits / temperature, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1)
+                
+            generated_tokens[:, i] = next_token.squeeze(dim=-1)
+
+            next_token = torch.cat([next_token.unsqueeze(dim=1), next_token.unsqueeze(dim=1)], dim=1).view(-1)
+            img_embeds = self.prepare_gen_img_embeds(next_token)
+            inputs_embeds = img_embeds.unsqueeze(dim=1)
+            
+        output = AttrDict(
+            generated_tokens=generated_tokens,
+            input_ids=input_ids,
+            seq=torch.cat((input_ids, generated_tokens), dim=1),
+        )
+        return output
+        
 
 
 AutoConfig.register("vision", VisionConfig)
