@@ -290,13 +290,13 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         
         tokens = torch.zeros((parallel_size*2, input_ids.shape[1]), dtype=torch.int).cuda()
         for i in range(parallel_size*2):
-            tokens[i, :] = input_ids[i]
+            tokens[i, :] = input_ids[i//2]
             if i % 2 != 0:
                 tokens[i, 1:-1] = pad_token_id
                 
         inputs_embeds = self.language_model.get_input_embeddings()(tokens)
                 
-        generated_tokens = torch.zeros((parallel_size, max_new_tokens), dtype=torch.int).cuda()
+        generated_tokens = torch.zeros((parallel_size, image_token_num_per_image), dtype=torch.int).cuda()
         
         for i in range(image_token_num_per_image):
             outputs = self.language_model.model(inputs_embeds=inputs_embeds, use_cache=True, past_key_values=outputs.past_key_values if i != 0 else None)
@@ -331,7 +331,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         output = AttrDict(
             generated_tokens=generated_tokens,
             input_ids=input_ids,
-            seq=torch.cat((input_ids, generated_tokens), dim=1),
+            sequences=torch.cat((input_ids, generated_tokens), dim=1),
             gen_img=visual_img,
         )
         return output
