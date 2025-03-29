@@ -163,16 +163,18 @@ class ActorRolloutRefWorker(Worker):
             from janus.models import MultiModalityCausalLM, VLChatProcessor
             self.processor = VLChatProcessor.from_pretrained(local_path)
             self.tokenizer = self.processor.tokenizer
+            self.generation_config = None
         else:
             self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
             self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)
+            self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
+            
         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
         # TODO(zhangchi.usc1992): 1. support create from random initialized model. 2. Support init with FSDP directly
         
         # override model kwargs
         actor_model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
 
-        self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
 
         override_config_kwargs = {
             'bos_token_id': self.tokenizer.bos_token_id,

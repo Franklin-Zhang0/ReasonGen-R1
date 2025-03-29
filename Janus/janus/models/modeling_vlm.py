@@ -31,6 +31,7 @@ from transformers.configuration_utils import PretrainedConfig
 
 from janus.models.clip_encoder import CLIPVisionTower
 from janus.models.projector import MlpProjector
+import numpy as np
 
 class vision_head(torch.nn.Module):
     def __init__(self, params):
@@ -275,6 +276,10 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                  return_dict_in_generate=True, 
                  use_cache=True
                 ):
+        if generation_config is None:
+            generation_config = {}
+        else:
+            generation_config = generation_config.to_dict()
         cfg_weight = generation_config.get("cfg_weight", 5.0)
         image_token_num_per_image = generation_config.get("image_token_num_per_image", 576)
         img_size = generation_config.get("img_size", 384)
@@ -285,7 +290,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         
         tokens = torch.zeros((parallel_size*2, input_ids.shape[1]), dtype=torch.int).cuda()
         for i in range(parallel_size*2):
-            tokens[i, :] = input_ids
+            tokens[i, :] = input_ids[i]
             if i % 2 != 0:
                 tokens[i, 1:-1] = pad_token_id
                 
@@ -314,11 +319,20 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             next_token = torch.cat([next_token.unsqueeze(dim=1), next_token.unsqueeze(dim=1)], dim=1).view(-1)
             img_embeds = self.prepare_gen_img_embeds(next_token)
             inputs_embeds = img_embeds.unsqueeze(dim=1)
+        
+        dec = self.gen_vision_model.decode_code(generated_tokens.to(dtype=torch.int), shape=[parallel_size, 8, img_size//patch_size, img_size//patch_size])
+        dec = dec.to(torch.float32).cpu().numpy().transpose(0, 2, 3, 1)
+
+        dec = np.clip((dec + 1) / 2 * 255, 0, 255)
+
+        visual_img = np.zeros((parallel_size, img_size, img_size, 3), dtype=np.uint8)
+        visual_img[:, :, :] = dec
             
         output = AttrDict(
             generated_tokens=generated_tokens,
             input_ids=input_ids,
             seq=torch.cat((input_ids, generated_tokens), dim=1),
+            gen_img=visual_img,
         )
         return output
         
