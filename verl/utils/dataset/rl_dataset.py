@@ -383,7 +383,7 @@ class DummyJanusDPORLHFDataset(Dataset):
         self.system_prompt = system_prompt
         
     def __len__(self):
-        return 1024*8
+        return 1024
 
     def __getitem__(self, item):
         """

@@ -132,6 +132,8 @@ class HFRollout(BaseRollout):
                 'position_ids': position_ids
             },
             batch_size=batch_size)
+        if 'gen_img' in prompts.batch:
+            batch['gen_img'] = prompts.batch['gen_img']
 
         # empty cache before compute old_log_prob
         torch.cuda.empty_cache()
