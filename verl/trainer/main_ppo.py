@@ -153,6 +153,9 @@ class TaskRunner:
         elif reward_manager_name == 'prime':
             from verl.workers.reward_manager import PrimeRewardManager
             reward_manager_cls = PrimeRewardManager
+        elif reward_manager_name == 'image_generation':
+            from verl.workers.reward_manager import ImageGenerationRewardManager
+            reward_manager_cls = ImageGenerationRewardManager
         else:
             raise NotImplementedError
 

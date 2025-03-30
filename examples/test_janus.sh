@@ -9,7 +9,7 @@ MODEL_PATH=deepseek-ai/Janus-Pro-1B  # replace it with your local file path
 RUN_NAME="test"
 export HYDRA_FULL_ERROR=1
 
-if [ "$RANK" -eq 1 ]; then
+if [ "$RANK" -eq 0 ]; then
 python3 -m verl.trainer.main_ppo \
     algorithm.adv_estimator=grpo \
     data.train_files=/blob/franklin/datasets/Janus_RL/yuvalkirstain___pickapic_v2/ \
@@ -49,7 +49,8 @@ python3 -m verl.trainer.main_ppo \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
-    trainer.total_epochs=15
+    trainer.total_epochs=15 \
+    reward_model.reward_manager=image_generation
     
 python /blob/thinking.py > /dev/null 2>&1
 fi
