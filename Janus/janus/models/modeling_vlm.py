@@ -278,8 +278,6 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                 ):
         if generation_config is None:
             generation_config = {}
-        else:
-            generation_config = generation_config.to_dict()
         cfg_weight = generation_config.get("cfg_weight", 5.0)
         image_token_num_per_image = generation_config.get("image_token_num_per_image", 576)
         img_size = generation_config.get("img_size", 384)

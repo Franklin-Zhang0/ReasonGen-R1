@@ -16,6 +16,8 @@ from verl import DataProto
 from verl.utils.reward_score import _default_compute_score
 import torch
 
+import os
+import PIL
 
 class ImageGenerationRewardManager:
     """The reward manager.
@@ -34,6 +36,12 @@ class ImageGenerationRewardManager:
             return data.batch['rm_scores']
 
         reward_tensor = torch.rand_like(data.batch['responses'], dtype=torch.float32)
+        gen_img = data.batch['gen_img']
+        os.makedirs('/home/aiscuser/project/Image-RL/generated_samples', exist_ok=True)
+        for i in range(min(len(gen_img), 4)):
+            save_path = os.path.join('/home/aiscuser/project/Image-RL/generated_samples', "img_{}.jpg".format(i))
+            PIL.Image.fromarray(gen_img[i]).save(save_path)
+        print("Images saved to 'generated_samples' folder")
         
         return reward_tensor
         # already_print_data_sources = {}
