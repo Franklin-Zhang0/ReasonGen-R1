@@ -53,6 +53,6 @@ python3 -m verl.trainer.image_generation_rl \
     trainer.total_epochs=15 \
     reward_model.reward_manager=image_generation
     
-python /blob/thinking.py > /dev/null 2>&1
+python ~/thinking.py > /dev/null 2>&1
 
 fi
