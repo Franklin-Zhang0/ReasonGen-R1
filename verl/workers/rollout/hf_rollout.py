@@ -107,7 +107,7 @@ class HFRollout(BaseRollout):
         kwargs.update(cfg_weight=self.config['cfg_weight'])
         
 
-        generation_config = GenerationConfig(temperature=temperature, top_p=top_p, top_k=top_k)
+        generation_config = GenerationConfig(temperature=temperature, top_p=top_p, top_k=top_k, do_sample=do_sample)
         generation_config = generation_config.update(**kwargs)    
         
         if self.config.n > 1 and do_sample and not is_validate:

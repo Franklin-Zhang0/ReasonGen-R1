@@ -37,6 +37,7 @@ class ImageGenerationRewardManager:
 
         reward_tensor = torch.rand_like(data.batch['responses'], dtype=torch.float32)
         gen_img = data.batch['gen_img']
+        gen_img = gen_img.to('cpu').numpy() if isinstance(gen_img, torch.Tensor) else gen_img
         os.makedirs('/home/aiscuser/project/Image-RL/generated_samples', exist_ok=True)
         for i in range(min(len(gen_img), 4)):
             save_path = os.path.join('/home/aiscuser/project/Image-RL/generated_samples', "img_{}.jpg".format(i))

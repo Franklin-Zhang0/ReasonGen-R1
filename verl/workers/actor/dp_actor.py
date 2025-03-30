@@ -150,7 +150,7 @@ class DataParallelPPOActor(BasePPOActor):
 
             else:  # not using rmpad and no ulysses sp
                 output = self.actor_module(input_ids=input_ids,
-                                           input_img_mask=micro_batch['input_img_mask'] if 'input_img_mask' in micro_batch else None,
+                                           input_img_mask=micro_batch['seq_img_mask'],
                                            attention_mask=attention_mask,
                                            position_ids=position_ids,
                                            cfg_weight = self.cfg_weight,
@@ -199,7 +199,7 @@ class DataParallelPPOActor(BasePPOActor):
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
         use_dynamic_bsz = data.meta_info['use_dynamic_bsz']
 
-        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids']
+        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'seq_img_mask']
         batch = data.select(batch_keys=select_keys).batch
         has_multi_modal_inputs = 'multi_modal_inputs' in data.non_tensor_batch.keys()
 

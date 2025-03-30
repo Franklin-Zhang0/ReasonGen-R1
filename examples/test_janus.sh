@@ -5,7 +5,7 @@ export VLLM_ATTENTION_BACKEND=XFORMERS
 SYSTEM_PROMPT="Reason about how you should generate the image"
 
 GPUS=`nvidia-smi -L | wc -l`
-MODEL_PATH=deepseek-ai/Janus-Pro-1B  # replace it with your local file path
+MODEL_PATH=/blob/franklin/models/huggingface/Janus-Pro-1B  # replace it with your local file path
 RUN_NAME="test"
 export HYDRA_FULL_ERROR=1
 
