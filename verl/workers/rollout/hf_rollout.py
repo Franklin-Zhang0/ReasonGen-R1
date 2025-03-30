@@ -28,9 +28,17 @@ from verl.utils.torch_functional import get_eos_mask
 from .base import BaseRollout
 
 from transformers import GenerationConfig
+import numpy as np
+from typing import Union, List, Any
 
 __all__ = ['HFRollout']
 
+
+def _repeat_interleave(value: Union[torch.Tensor, np.ndarray], repeats: int) -> Union[torch.Tensor, List[Any]]:
+    if isinstance(value, torch.Tensor):
+        return value.repeat_interleave(repeats, dim=0)
+    else:
+        return np.repeat(value, repeats, axis=0)
 
 class HFRollout(BaseRollout):
 
@@ -46,6 +54,22 @@ class HFRollout(BaseRollout):
         output = [self._generate_minibatch(p) for p in batch_prompts]
         output = DataProto.concat(output)
         return output
+    
+    @contextmanager
+    def update_sampling_params(self, **kwargs):
+        # update sampling params
+        old_sampling_params_args = {}
+        if kwargs:
+            for key, value in kwargs.items():
+                if hasattr(self.sampling_params, key):
+                    old_value = getattr(self.sampling_params, key)
+                    old_sampling_params_args[key] = old_value
+                    setattr(self.sampling_params, key, value)
+        yield
+        # roll back to previous sampling params
+        # if len(old_sampling_params_args):
+        for key, value in old_sampling_params_args.items():
+            setattr(self.sampling_params, key, value)
 
     @torch.no_grad()
     def _generate_minibatch(self, prompts: DataProto) -> DataProto:
@@ -64,7 +88,7 @@ class HFRollout(BaseRollout):
         param_ctx = contextlib.nullcontext()
 
         # make sampling args can be overriden by inputs
-        do_sample = prompts.meta_info.get('do_sample', self.config.do_sample)
+        do_sample = prompts.meta_info.get('do_sample', True)
         response_length = prompts.meta_info.get('response_length', self.config.response_length)
         top_p = prompts.meta_info.get('top_p', self.config.get('top_p', 1.0))
         top_k = prompts.meta_info.get('top_k', self.config.get('top_k', 0))
@@ -72,11 +96,42 @@ class HFRollout(BaseRollout):
         if top_k is None:
             top_k = 0
         top_k = max(0, top_k)  # to be compatible with vllm
-
+        
+        is_validate = prompts.meta_info.get('validate', False)
+        
         temperature = prompts.meta_info.get('temperature', self.config.temperature)
+        
+        kwargs = {}
+        if not do_sample:
+            kwargs = {
+                'best_of': 1,
+                'top_p': 1.0,
+                'top_k': 0,
+                'min_p': 0.0,
+                'temperature': 0,
+                'n': 1  # if greedy, only 1 response
+            }
+        elif is_validate:
+            # TODO: try **
+            kwargs = {
+                'top_k': self.config.val_kwargs.top_k,
+                'top_p': self.config.val_kwargs.top_p,
+                'temperature': self.config.val_kwargs.temperature,
+                'n': 1,  # if validate, already repeat in ray_trainer
+            }
+        kwargs.update(cfg_weight=self.config['cfg_weight'])
+        
 
         generation_config = GenerationConfig(temperature=temperature, top_p=top_p, top_k=top_k)
-
+        generation_config = generation_config.update(**kwargs)    
+        
+        if self.config.n > 1 and do_sample and not is_validate:
+            idx = _repeat_interleave(idx, self.config.n)
+            attention_mask = _repeat_interleave(attention_mask, self.config.n)
+            position_ids = _repeat_interleave(position_ids, self.config.n)
+            batch_size = idx.size(0)
+            prompt_length = idx.size(1)    
+        
         if isinstance(self.module, FSDP):
             # recurse need to set to False according to https://github.com/pytorch/pytorch/issues/100069
             param_ctx = FSDP.summon_full_params(self.module, writeback=False, recurse=False)

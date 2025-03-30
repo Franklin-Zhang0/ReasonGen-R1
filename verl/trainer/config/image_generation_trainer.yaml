@@ -72,7 +72,7 @@ actor_rollout_ref:
   rollout:
     name: vllm
     temperature: 1.0
-    top_k: -1 # 0 for hf rollout, -1 for vllm rollout
+    top_k: 0 # 0 for hf rollout, -1 for vllm rollout
     top_p: 1
     use_fire_sampling: False # https://arxiv.org/abs/2410.21236
     prompt_length: ${data.max_prompt_length}  # not use for opensource
@@ -100,7 +100,7 @@ actor_rollout_ref:
     n: 1 # > 1 for grpo
     val_kwargs:
       # sampling parameters for validation
-      top_k: -1 # 0 for hf rollout, -1 for vllm rollout
+      top_k: 0 # 0 for hf rollout, -1 for vllm rollout
       top_p: 1.0
       temperature: 0
       n: 1

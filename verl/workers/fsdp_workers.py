@@ -163,7 +163,11 @@ class ActorRolloutRefWorker(Worker):
             from janus.models import MultiModalityCausalLM, VLChatProcessor
             self.processor = VLChatProcessor.from_pretrained(local_path)
             self.tokenizer = self.processor.tokenizer
-            self.generation_config = None
+            self.generation_config = get_generation_config(local_path, trust_remote_code=trust_remote_code)
+            self.generation_config.pad_token_id = self.tokenizer.pad_token_id
+            self.generation_config.eos_token_id = self.tokenizer.eos_token_id
+            self.generation_config.cfg_weight = self.config.model.get('cfg_weight', 1.0)
+            self.config.rollout.cfg_weight = self.config.model.get('cfg_weight', 1.0)
         else:
             self.tokenizer = hf_tokenizer(local_path, trust_remote_code=trust_remote_code)
             self.processor = hf_processor(local_path, trust_remote_code=trust_remote_code)

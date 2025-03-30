@@ -29,7 +29,7 @@ python3 -m verl.trainer.image_generation_rl \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
     actor_rollout_ref.actor.kl_loss_type=low_var_kl \
     actor_rollout_ref.actor.entropy_coeff=0 \
-    actor_rollout_ref.model.enable_gradient_checkpointing=True \
+    actor_rollout_ref.model.enable_gradient_checkpointing=False \
     actor_rollout_ref.actor.fsdp_config.param_offload=False \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=16 \
@@ -37,7 +37,8 @@ python3 -m verl.trainer.image_generation_rl \
     actor_rollout_ref.rollout.name=hf \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=2 \
-    ++actor_rollout_ref.rollout.micro_batch_size=16 \
+    actor_rollout_ref.model.cfg_weight=5.0 \
+    actor_rollout_ref.rollout.micro_batch_size=16 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.kl_ctrl.kl_coef=0.001 \
@@ -53,4 +54,5 @@ python3 -m verl.trainer.image_generation_rl \
     reward_model.reward_manager=image_generation
     
 python /blob/thinking.py > /dev/null 2>&1
+
 fi
