@@ -48,8 +48,12 @@ class DataParallelPPOActor(BasePPOActor):
         super().__init__(config)
         self.actor_module = actor_module
         self.actor_optimizer = actor_optimizer
+        self.cfg_weight = self.config.get('cfg_weight', 5.0)
+        self.detach_uncond = self.config.get('detach_uncond', False)
         self.use_remove_padding = self.config.get('use_remove_padding', False)
         print(f'Actor use_remove_padding={self.use_remove_padding}')
+        print(f'Actor cfg_weight={self.cfg_weight}')
+        print(f'Actor detach_uncond={self.detach_uncond}')
         self.ulysses_sequence_parallel_size = self.config.ulysses_sequence_parallel_size
         self.use_ulysses_sp = self.ulysses_sequence_parallel_size > 1
 
@@ -146,9 +150,11 @@ class DataParallelPPOActor(BasePPOActor):
 
             else:  # not using rmpad and no ulysses sp
                 output = self.actor_module(input_ids=input_ids,
+                                           input_img_mask=micro_batch['input_img_mask'] if 'input_img_mask' in micro_batch else None,
                                            attention_mask=attention_mask,
                                            position_ids=position_ids,
-                                           **multi_modal_inputs,
+                                           cfg_weight = self.cfg_weight,
+                                           detach_uncond = self.detach_uncond,
                                            use_cache=False)  # prevent model thinks we are generating
                 logits = output.logits
                 logits.div_(temperature)

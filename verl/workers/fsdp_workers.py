@@ -216,6 +216,7 @@ class ActorRolloutRefWorker(Worker):
                     torch_dtype=torch_dtype,
                     trust_remote_code=True
                     )
+                actor_module.pad_token_id = self.tokenizer.pad_token_id
 
             if use_remove_padding or self.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
@@ -389,6 +390,9 @@ class ActorRolloutRefWorker(Worker):
         override_model_config = OmegaConf.to_container(self.config.model.get('override_config', OmegaConf.create()))
 
         use_remove_padding = self.config.model.get('use_remove_padding', False)
+        cfg_weight = self.config.model.get('cfg_weight', 0.0)
+        detach_uncond = self.config.model.get('detach_uncond', False)
+        
 
         if self._is_actor or self._is_rollout:
             # we need the model for actor and rollout
@@ -420,6 +424,8 @@ class ActorRolloutRefWorker(Worker):
             OmegaConf.set_struct(self.config.actor, True)
             with open_dict(self.config.actor):
                 self.config.actor.use_remove_padding = use_remove_padding
+                self.config.actor.cfg_weight = cfg_weight
+                self.config.actor.detach_uncond = detach_uncond
             self.actor = DataParallelPPOActor(config=self.config.actor,
                                               actor_module=self.actor_module_fsdp,
                                               actor_optimizer=self.actor_optimizer)
@@ -440,6 +446,8 @@ class ActorRolloutRefWorker(Worker):
             OmegaConf.set_struct(self.config.ref, True)
             with open_dict(self.config.ref):
                 self.config.ref.use_remove_padding = use_remove_padding
+                self.config.ref.cfg_weight = cfg_weight
+                self.config.ref.detach_uncond = detach_uncond
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
         if self._is_actor:

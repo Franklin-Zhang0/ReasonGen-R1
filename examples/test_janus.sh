@@ -10,7 +10,7 @@ RUN_NAME="test"
 export HYDRA_FULL_ERROR=1
 
 if [ "$RANK" -eq 0 ]; then
-python3 -m verl.trainer.main_ppo \
+python3 -m verl.trainer.image_generation_rl \
     algorithm.adv_estimator=grpo \
     data.train_files=/blob/franklin/datasets/Janus_RL/yuvalkirstain___pickapic_v2/ \
     data.val_files=/blob/franklin/datasets/Janus_RL/yuvalkirstain___pickapic_v2/ \
@@ -22,7 +22,7 @@ python3 -m verl.trainer.main_ppo \
     data.truncation='error' \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
-    actor_rollout_ref.model.use_remove_padding=True \
+    actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.actor.use_kl_loss=True \

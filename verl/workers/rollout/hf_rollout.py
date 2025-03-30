@@ -129,11 +129,13 @@ class HFRollout(BaseRollout):
                 'responses': response,
                 'input_ids': seq,
                 'attention_mask': attention_mask,
-                'position_ids': position_ids
+                'position_ids': position_ids,
             },
             batch_size=batch_size)
-        if 'gen_img' in prompts.batch:
-            batch['gen_img'] = prompts.batch['gen_img']
+        if 'gen_img' in output.keys():
+            batch['gen_img'] = output.gen_img
+        if 'seq_img_mask' in output.keys():
+            batch['seq_img_mask'] = output.seq_img_mask
 
         # empty cache before compute old_log_prob
         torch.cuda.empty_cache()

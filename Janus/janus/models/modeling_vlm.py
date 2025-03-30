@@ -299,7 +299,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         generated_tokens = torch.zeros((parallel_size, image_token_num_per_image), dtype=torch.int).cuda()
         
         for i in range(image_token_num_per_image):
-            outputs = self.language_model.model(inputs_embeds=inputs_embeds, use_cache=True, past_key_values=outputs.past_key_values if i != 0 else None)
+            outputs = self.language_model.model(inputs_embeds=inputs_embeds, use_cache=use_cache, past_key_values=outputs.past_key_values if i != 0 else None)
             hidden_states = outputs.last_hidden_state
             
             logits = self.gen_head(hidden_states[:, -1, :])
@@ -327,12 +327,88 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
 
         visual_img = np.zeros((parallel_size, img_size, img_size, 3), dtype=np.uint8)
         visual_img[:, :, :] = dec
+        
+        sequences = torch.cat((input_ids, generated_tokens), dim=1)
+        seq_img_mask = torch.zeros_like(sequences, dtype=torch.bool)
+        seq_img_mask[:, input_ids.shape[1]:] = True
             
         output = AttrDict(
             generated_tokens=generated_tokens,
             input_ids=input_ids,
             sequences=torch.cat((input_ids, generated_tokens), dim=1),
+            seq_img_mask=seq_img_mask,
             gen_img=visual_img,
+        )
+        return output
+     
+    def forward(self, 
+                input_ids, 
+                input_img_mask, 
+                attention_mask, 
+                position_ids, 
+                cfg_weight=5.0,
+                detach_uncond=False,
+                use_cache=False
+               ):
+        """
+        Args:
+            input_ids (torch.LongTensor): [b, T]
+            input_img_mask (torch.BoolTensor): [b, T]
+            attention_mask (torch.BoolTensor): [b, T, T]
+            position_ids (torch.LongTensor): [b, T]
+            cfg_weight (float): weight for the conditional generation
+            detach_uncond (bool): whether to detach the unconditional generation logits
+            use_cache (bool): whether to use cache for the transformer model
+        Output:
+            output (AttrDict): {
+                text_logits (torch.FloatTensor): [b, T, V]
+                img_logits (torch.FloatTensor): [b, T, V]
+                logits (torch.FloatTensor): [b, T, V]
+            }
+        """
+        text_ids = input_ids[~input_img_mask]
+        img_ids = input_ids[input_img_mask]
+        
+        parallel_size = input_ids.shape[0]
+        
+        text_tokens = torch.zeros((parallel_size*2, text_ids.shape[1]), dtype=torch.int).cuda()
+        image_tokens = torch.zeros((parallel_size*2, img_ids.shape[1]), dtype=torch.int).cuda()
+        duplicated_img_mask = torch.zeros((parallel_size*2, input_img_mask.shape[1]), dtype=torch.bool).cuda()
+        for i in range(parallel_size*2):
+            text_tokens[i, :] = text_ids[i//2]
+            image_tokens[i, :] = img_ids[i//2]
+            duplicated_img_mask[i, :] = input_img_mask[i//2]
+            if i % 2 != 0:
+                text_tokens[i, 1:-1] = self.pad_token_id
+        
+        text_embeds = self.language_model.get_input_embeddings()(text_ids)
+        img_embeds = self.prepare_gen_img_embeds(img_ids)
+        inputs_embeds = torch.zeros((parallel_size*2, input_ids.shape[1], text_embeds.shape[2]), dtype=torch.float32).cuda()
+        inputs_embeds[~input_img_mask] = text_embeds
+        inputs_embeds[input_img_mask] = img_embeds
+        
+        outputs = self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=attention_mask, position_ids=position_ids, use_cache=use_cache)
+        
+        hidden_states = outputs.last_hidden_state
+        text_hidden_states = hidden_states[~duplicated_img_mask][0::2]
+        img_hidden_states = hidden_states[duplicated_img_mask]
+        
+        test_logits = self.language_model.lm_head(text_hidden_states)
+        img_logits = self.gen_head(img_hidden_states)
+        logit_cond = img_logits[0::2, :]
+        logit_uncond = img_logits[1::2, :]
+        if detach_uncond:
+            img_logits = logit_uncond.detach() + cfg_weight * (logit_cond-logit_uncond.detach())
+        else:
+            img_logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
+        logits = torch.zeros((parallel_size, input_ids.shape[1], img_logits.shape[-1]), dtype=torch.float32).cuda()
+        logits[~input_img_mask] = test_logits
+        logits[input_img_mask] = img_logits
+        
+        output = AttrDict(
+            text_logits=test_logits,
+            img_logits=img_logits,
+            logits=logits
         )
         return output
         
