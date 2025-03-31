@@ -286,18 +286,30 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         
         parallel_size = input_ids.shape[0]
         
+        num_pad = torch.sum(input_ids == pad_token_id, dim=-1)
+        last_pad_idx = num_pad - 1
+        sentence_start_token_id = input_ids[last_pad_idx][0]
+        
         tokens = torch.zeros((parallel_size*2, input_ids.shape[1]), dtype=torch.int).cuda()
         for i in range(parallel_size*2):
             tokens[i, :] = input_ids[i//2]
             if i % 2 != 0:
-                tokens[i, 1:-1] = pad_token_id
+                tokens[i, :-1] = pad_token_id
+                tokens[i, last_pad_idx[i//2]] = sentence_start_token_id
                 
         inputs_embeds = self.language_model.get_input_embeddings()(tokens)
                 
         generated_tokens = torch.zeros((parallel_size, image_token_num_per_image), dtype=torch.int).cuda()
         
+        position_ids = torch.clip(torch.cumsum(attention_mask, dim=-1) - 1, min=0, max=None)
+        
         for i in range(image_token_num_per_image):
-            outputs = self.language_model.model(inputs_embeds=inputs_embeds, use_cache=use_cache, past_key_values=outputs.past_key_values if i != 0 else None)
+            outputs = self.language_model.model(inputs_embeds=inputs_embeds, 
+                                                attention_mask=attention_mask,
+                                                use_cache=use_cache, 
+                                                past_key_values=outputs.past_key_values if i != 0 else None,
+                                                position_ids=position_ids
+                                                )
             hidden_states = outputs.last_hidden_state
             
             logits = self.gen_head(hidden_states[:, -1, :])
@@ -316,7 +328,12 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
 
             next_token = torch.cat([next_token.unsqueeze(dim=1), next_token.unsqueeze(dim=1)], dim=1).view(-1)
             img_embeds = self.prepare_gen_img_embeds(next_token)
+            
             inputs_embeds = img_embeds.unsqueeze(dim=1)
+            attention_mask = torch.cat([attention_mask, torch.ones((parallel_size*2, 1), dtype=torch.int)], dim=1)
+            position_ids = (position_ids[:,-1:] + 1).cuda()
+            
+            
         
         dec = self.gen_vision_model.decode_code(generated_tokens.to(dtype=torch.int), shape=[parallel_size, 8, img_size//patch_size, img_size//patch_size])
         dec = dec.to(torch.float32).cpu().numpy().transpose(0, 2, 3, 1)

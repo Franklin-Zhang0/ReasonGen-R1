@@ -57,21 +57,16 @@ def generate(
                                                                          left_pad=True,
                                                                          truncation='error')
     input_ids = input_ids[0]
-    input_ids = torch.cat([vl_chat_processor.tokenizer.pad_token_id * torch.ones(1, dtype=torch.long), input_ids])
-    num_pad = torch.sum(input_ids == vl_chat_processor.pad_id, dim=-1)
-    last_pad_idx = num_pad - 1
-    # breakpoint()
     sentence_start_token, image_start_token = vl_chat_processor.tokenizer.encode(vl_chat_processor.image_start_tag)
-    input_ids = torch.cat([input_ids, torch.LongTensor([image_start_token])])
+    input_ids = torch.cat([torch.LongTensor([vl_chat_processor.tokenizer.pad_token_id]), input_ids, torch.LongTensor([image_start_token])])
+    num_pad = torch.sum(input_ids == vl_chat_processor.tokenizer.pad_token_id, dim=-1)
+    last_pad_idx = num_pad - 1
     input_ids[last_pad_idx] = sentence_start_token
-    # input_ids[-1] = vl_chat_processor.tokenizer.encode(vl_chat_processor.image_start_tag)[-1]
     attention_mask = attention_mask[0]
     attention_mask = torch.cat([torch.LongTensor([0]), attention_mask, torch.LongTensor([1])])
     attention_mask[last_pad_idx] = 1
-    
     attention_mask = attention_mask.unsqueeze(dim=0).repeat(parallel_size*2, 1)
-    position_ids = compute_position_id_with_mask(attention_mask).cuda() - 1
-    position_ids = position_ids.masked_fill_(attention_mask.cuda() == 0, -1)
+    position_ids = compute_position_id_with_mask(attention_mask).cuda()
     # breakpoint()
 
     tokens = torch.zeros((parallel_size*2, len(input_ids)), dtype=torch.int).cuda()
