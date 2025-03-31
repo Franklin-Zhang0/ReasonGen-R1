@@ -354,7 +354,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         output = AttrDict(
             generated_tokens=generated_tokens,
             input_ids=input_ids,
-            sequences=torch.cat((input_ids, generated_tokens), dim=1),
+            sequences=sequences,
             seq_img_mask=seq_img_mask,
             gen_img=visual_img,
         )
@@ -373,7 +373,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         Args:
             input_ids (torch.LongTensor): [b, T]
             input_img_mask (torch.BoolTensor): [b, T]
-            attention_mask (torch.BoolTensor): [b, T, T]
+            attention_mask (torch.BoolTensor): [b, T]
             position_ids (torch.LongTensor): [b, T]
             cfg_weight (float): weight for the conditional generation
             detach_uncond (bool): whether to detach the unconditional generation logits
@@ -399,18 +399,21 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             duplicated_img_mask[i, :] = input_img_mask[i//2]
             if i % 2 != 0:
                 text_tokens[i, 1:-1] = self.pad_token_id
+                
+        after_forward_duplicated_img_mask = torch.cat([duplicated_img_mask, torch.ones(parallel_size*2, 1)])[:, 1:]
+        after_forward_input_img_mask = torch.cat([input_img_mask, torch.ones(parallel_size, 1)])[:, 1:]
         
         text_embeds = self.language_model.get_input_embeddings()(text_ids)
         img_embeds = self.prepare_gen_img_embeds(img_ids)
         inputs_embeds = torch.zeros((parallel_size*2, input_ids.shape[1], text_embeds.shape[2]), dtype=torch.float32).cuda()
-        inputs_embeds[~input_img_mask] = text_embeds
-        inputs_embeds[input_img_mask] = img_embeds
+        inputs_embeds[~duplicated_img_mask] = text_embeds
+        inputs_embeds[duplicated_img_mask] = img_embeds
         
         outputs = self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=attention_mask, position_ids=position_ids, use_cache=use_cache)
         
         hidden_states = outputs.last_hidden_state
-        text_hidden_states = hidden_states[~duplicated_img_mask][0::2]
-        img_hidden_states = hidden_states[duplicated_img_mask]
+        text_hidden_states = hidden_states[~after_forward_duplicated_img_mask][0::2]
+        img_hidden_states = hidden_states[after_forward_duplicated_img_mask]
         
         test_logits = self.language_model.lm_head(text_hidden_states)
         img_logits = self.gen_head(img_hidden_states)
@@ -421,8 +424,8 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         else:
             img_logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
         logits = torch.zeros((parallel_size, input_ids.shape[1], img_logits.shape[-1]), dtype=torch.float32).cuda()
-        logits[~input_img_mask] = test_logits
-        logits[input_img_mask] = img_logits
+        logits[~after_forward_input_img_mask] = test_logits
+        logits[after_forward_input_img_mask] = img_logits
         
         output = AttrDict(
             text_logits=test_logits,

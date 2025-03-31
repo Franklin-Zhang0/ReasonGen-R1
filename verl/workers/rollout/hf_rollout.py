@@ -137,6 +137,7 @@ class HFRollout(BaseRollout):
                     use_cache=True)
         # TODO: filter out the seq with no answers like ds-chat
         seq = output.sequences
+        seq_img_mask = output.seq_img_mask
 
         # huggingface generate will stop generating when all the batch reaches [EOS].
         # We have to pad to response_length
@@ -147,6 +148,8 @@ class HFRollout(BaseRollout):
             delta_tokens = torch.ones(size=(batch_size, delta_length), device=seq.device, dtype=seq.dtype)
             delta_tokens = pad_token_id * delta_tokens
             seq = torch.cat((seq, delta_tokens), dim=1)
+            delta_seq_img_mask = torch.zeros(size=(batch_size, delta_length), device=seq.device, dtype=seq_img_mask.dtype)
+            seq_img_mask = torch.cat((seq_img_mask, delta_seq_img_mask), dim=1)
 
         assert seq.shape[1] == sequence_length
 
@@ -161,6 +164,7 @@ class HFRollout(BaseRollout):
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
 
         response_attention_mask = get_eos_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
+        response_attention_mask[..., -delta_length:] = 0
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         batch = TensorDict(
@@ -170,12 +174,12 @@ class HFRollout(BaseRollout):
                 'input_ids': seq,
                 'attention_mask': attention_mask,
                 'position_ids': position_ids,
+                'gen_img': output.gen_img,
+                'seq_img_mask': seq_img_mask
             },
             batch_size=batch_size)
-        if 'gen_img' in output.keys():
-            batch['gen_img'] = output.gen_img
-        if 'seq_img_mask' in output.keys():
-            batch['seq_img_mask'] = output.seq_img_mask
+        print(batch['seq_img_mask'].shape)
+        print(batch['input_ids'].shape)
 
         # empty cache before compute old_log_prob
         torch.cuda.empty_cache()
