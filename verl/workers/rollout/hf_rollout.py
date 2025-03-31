@@ -178,8 +178,6 @@ class HFRollout(BaseRollout):
                 'seq_img_mask': seq_img_mask
             },
             batch_size=batch_size)
-        print(batch['seq_img_mask'].shape)
-        print(batch['input_ids'].shape)
 
         # empty cache before compute old_log_prob
         torch.cuda.empty_cache()

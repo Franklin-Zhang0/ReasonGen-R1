@@ -217,6 +217,10 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
 
         language_config = config.language_config
         self.language_model = LlamaForCausalLM(language_config)
+        self.pad_token_id = config.pad_token_id
+        self.bos_token_id = config.bos_token_id
+        self.n_embed = language_config.hidden_size
+        self.config = config
 
     def prepare_inputs_embeds(
         self,
@@ -385,29 +389,24 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                 logits (torch.FloatTensor): [b, T, V]
             }
         """
-        text_ids = input_ids[~input_img_mask]
-        img_ids = input_ids[input_img_mask]
         
         parallel_size = input_ids.shape[0]
         
-        text_tokens = torch.zeros((parallel_size*2, text_ids.shape[1]), dtype=torch.int).cuda()
-        image_tokens = torch.zeros((parallel_size*2, img_ids.shape[1]), dtype=torch.int).cuda()
+        tokens = torch.zeros((parallel_size*2, input_ids.shape[1]), dtype=torch.int).cuda()
         duplicated_img_mask = torch.zeros((parallel_size*2, input_img_mask.shape[1]), dtype=torch.bool).cuda()
+        
         for i in range(parallel_size*2):
-            text_tokens[i, :] = text_ids[i//2]
-            image_tokens[i, :] = img_ids[i//2]
+            tokens[i, :] = input_ids[i//2]
             duplicated_img_mask[i, :] = input_img_mask[i//2]
             if i % 2 != 0:
-                text_tokens[i, 1:-1] = self.pad_token_id
+                tokens[i, :-1] = torch.where(tokens[i, :-1] != self.bos_token_id, self.pad_token_id, self.bos_token_id)
                 
-        after_forward_duplicated_img_mask = torch.cat([duplicated_img_mask, torch.ones(parallel_size*2, 1)])[:, 1:]
-        after_forward_input_img_mask = torch.cat([input_img_mask, torch.ones(parallel_size, 1)])[:, 1:]
+        after_forward_duplicated_img_mask = torch.cat([duplicated_img_mask, torch.ones(parallel_size*2, 1, device=duplicated_img_mask.device)])[:, 1:]
+        after_forward_input_img_mask = torch.cat([input_img_mask, torch.ones(parallel_size, 1, device=input_img_mask.device)])[:, 1:]
         
-        text_embeds = self.language_model.get_input_embeddings()(text_ids)
-        img_embeds = self.prepare_gen_img_embeds(img_ids)
-        inputs_embeds = torch.zeros((parallel_size*2, input_ids.shape[1], text_embeds.shape[2]), dtype=torch.float32).cuda()
-        inputs_embeds[~duplicated_img_mask] = text_embeds
-        inputs_embeds[duplicated_img_mask] = img_embeds
+        inputs_embeds = torch.zeros((parallel_size*2, input_ids.shape[1], self.n_embed), dtype=torch.float32).cuda()
+        inputs_embeds[~duplicated_img_mask] = self.language_model.get_input_embeddings()(input_ids[~input_img_mask])
+        inputs_embeds[duplicated_img_mask] = self.prepare_gen_img_embeds(input_ids[input_img_mask])
         
         outputs = self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=attention_mask, position_ids=position_ids, use_cache=use_cache)
         
