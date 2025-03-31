@@ -287,8 +287,9 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         parallel_size = input_ids.shape[0]
         
         num_pad = torch.sum(input_ids == pad_token_id, dim=-1)
-        last_pad_idx = num_pad - 1
-        sentence_start_token_id = input_ids[last_pad_idx][0]
+        last_pad_idx = num_pad
+        sentence_start_token_id = input_ids[0, last_pad_idx[0]]
+        assert sentence_start_token_id == 100000, f"sentence start token id should be 100000 for Janus Pro model, but got {sentence_start_token_id}"
         
         tokens = torch.zeros((parallel_size*2, input_ids.shape[1]), dtype=torch.int).cuda()
         for i in range(parallel_size*2):
@@ -296,12 +297,15 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             if i % 2 != 0:
                 tokens[i, :-1] = pad_token_id
                 tokens[i, last_pad_idx[i//2]] = sentence_start_token_id
+            assert attention_mask[i//2, last_pad_idx[i//2]] == 1, f"attention mask should be 1 at the sentence start token"
                 
         inputs_embeds = self.language_model.get_input_embeddings()(tokens)
                 
         generated_tokens = torch.zeros((parallel_size, image_token_num_per_image), dtype=torch.int).cuda()
         
-        position_ids = torch.clip(torch.cumsum(attention_mask, dim=-1) - 1, min=0, max=None)
+        attention_mask = attention_mask.repeat(2, 1)
+        
+        position_ids = torch.clip(torch.cumsum(attention_mask, dim=-1) - 1, min=0, max=None).cuda()
         
         for i in range(image_token_num_per_image):
             outputs = self.language_model.model(inputs_embeds=inputs_embeds, 
@@ -330,7 +334,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             img_embeds = self.prepare_gen_img_embeds(next_token)
             
             inputs_embeds = img_embeds.unsqueeze(dim=1)
-            attention_mask = torch.cat([attention_mask, torch.ones((parallel_size*2, 1), dtype=torch.int)], dim=1)
+            attention_mask = torch.cat([attention_mask, torch.ones((parallel_size*2, 1), dtype=torch.int, device=attention_mask.device)], dim=1)
             position_ids = (position_ids[:,-1:] + 1).cuda()
             
             

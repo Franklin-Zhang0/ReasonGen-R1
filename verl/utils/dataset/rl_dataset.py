@@ -317,8 +317,8 @@ class DummyJanusDPO_PairWise_RLHFDataset(Dataset):
         num_pad = torch.sum(input_ids == self.tokenizer.pad_token_id, dim=-1)
         last_pad_idx = num_pad - 1
         
-        input_ids[:, last_pad_idx] = sentence_start_token
-        attention_mask[:, last_pad_idx] = 1
+        input_ids[last_pad_idx] = sentence_start_token
+        attention_mask[last_pad_idx] = 1
         
         position_ids = compute_position_id_with_mask(attention_mask)
         
@@ -422,20 +422,23 @@ class DummyJanusDPORLHFDataset(Dataset):
                                                                          left_pad=True,
                                                                          truncation=self.truncation)
 
-        if is_multi_modal:
-            from verl.models.transformers.qwen2_vl import get_rope_index
+        input_ids = input_ids[0]
+        attention_mask = attention_mask[0]
+        sentence_start_token, image_start_token = self.tokenizer.encode(self.processor.image_start_tag)
+        input_ids = torch.cat([torch.LongTensor([self.tokenizer.pad_token_id]), input_ids, torch.LongTensor([image_start_token])])
+        attention_mask = torch.cat([torch.LongTensor([0]), attention_mask, torch.LongTensor([1])])
 
-            position_ids = get_rope_index(
-                self.processor,
-                input_ids=input_ids[0],
-                attention_mask=attention_mask[0],
-            )  # (3, seq_len)
-        else:
-            position_ids = compute_position_id_with_mask(attention_mask)
-
-        row_dict['input_ids'] = input_ids[0]
-        row_dict['attention_mask'] = attention_mask[0]
-        row_dict['position_ids'] = position_ids[0]
+        num_pad = torch.sum(input_ids == self.tokenizer.pad_token_id, dim=-1)
+        last_pad_idx = num_pad - 1
+        
+        input_ids[last_pad_idx] = sentence_start_token
+        attention_mask[last_pad_idx] = 1
+        
+        position_ids = compute_position_id_with_mask(attention_mask)
+        
+        row_dict['input_ids'] = input_ids
+        row_dict['attention_mask'] = attention_mask
+        row_dict['position_ids'] = position_ids
         row_dict['raw_prompt_ids'] = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
 
         # encode prompts without chat template
