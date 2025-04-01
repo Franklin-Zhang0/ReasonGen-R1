@@ -401,8 +401,8 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             if i % 2 != 0:
                 tokens[i, :-1] = torch.where(tokens[i, :-1] != self.bos_token_id, self.pad_token_id, self.bos_token_id)
                 
-        after_forward_duplicated_img_mask = torch.cat([duplicated_img_mask, torch.ones(parallel_size*2, 1, device=duplicated_img_mask.device)])[:, 1:]
-        after_forward_input_img_mask = torch.cat([input_img_mask, torch.ones(parallel_size, 1, device=input_img_mask.device)])[:, 1:]
+        after_forward_duplicated_img_mask = torch.cat([duplicated_img_mask, torch.ones(parallel_size*2, 1, device=duplicated_img_mask.device)], dim=-1)[:, 1:]
+        after_forward_input_img_mask = torch.cat([input_img_mask, torch.ones(parallel_size, 1, device=input_img_mask.device)], dim=-1)[:, 1:]
         
         inputs_embeds = torch.zeros((parallel_size*2, input_ids.shape[1], self.n_embed), dtype=torch.float32).cuda()
         inputs_embeds[~duplicated_img_mask] = self.language_model.get_input_embeddings()(input_ids[~input_img_mask])
