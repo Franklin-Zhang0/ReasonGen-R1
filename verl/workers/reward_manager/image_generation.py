@@ -35,7 +35,8 @@ class ImageGenerationRewardManager:
         if 'rm_scores' in data.batch.keys():
             return data.batch['rm_scores']
 
-        reward_tensor = torch.rand_like(data.batch['responses'], dtype=torch.float32)
+        reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
+        reward_tensor[0, -576:] = 1
         gen_img = data.batch['gen_img']
         gen_img = gen_img.to('cpu').numpy() if isinstance(gen_img, torch.Tensor) else gen_img
         os.makedirs('/home/aiscuser/project/Image-RL/generated_samples', exist_ok=True)

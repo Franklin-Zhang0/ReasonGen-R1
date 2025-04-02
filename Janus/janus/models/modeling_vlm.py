@@ -32,6 +32,13 @@ from transformers.configuration_utils import PretrainedConfig
 from janus.models.clip_encoder import CLIPVisionTower
 from janus.models.projector import MlpProjector
 import numpy as np
+from torch.utils.checkpoint import checkpoint
+
+def checkpoint_wrapper(fn, gradient_checkpointing_kwargs):
+    def wrapper(*args, **kwargs):
+        return checkpoint(fn, *args, **kwargs, **gradient_checkpointing_kwargs)
+    return wrapper
+
 
 class vision_head(torch.nn.Module):
     def __init__(self, params):
@@ -218,6 +225,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         language_config = config.language_config
         self.language_model = LlamaForCausalLM(language_config)
         self.config = config
+        self.enable_gradient_checkpointing = False
 
     def prepare_inputs_embeds(
         self,
@@ -361,6 +369,11 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         )
         return output
     
+    def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs):
+        self.enable_gradient_checkpointing = True
+        self.gradient_checkpointing_kwargs = gradient_checkpointing_kwargs
+        print("Gradient checkpointing for llama backbone is enabled.")
+    
     def forward(self, 
                 input_ids, 
                 input_img_mask, 
@@ -417,8 +430,12 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         inputs_embeds[~duplicated_img_mask,:] = text_embeds
         inputs_embeds[duplicated_img_mask,:] = img_embeds
         
-        outputs = self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=duplicated_attn_mask, position_ids=duplicated_position_ids, use_cache=use_cache)
-        
+        if not self.enable_gradient_checkpointing:
+            outputs = self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=duplicated_attn_mask, position_ids=duplicated_position_ids, use_cache=use_cache)
+        else:
+            fn = lambda inputs_embeds, attention_mask, position_ids: self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=attention_mask, position_ids=position_ids, use_cache=use_cache)
+            outputs = checkpoint_wrapper(fn, self.gradient_checkpointing_kwargs)(inputs_embeds, duplicated_attn_mask, duplicated_position_ids)
+            
         hidden_states = outputs.last_hidden_state
         text_hidden_states = hidden_states[~after_forward_duplicated_img_mask][0::2]
         img_hidden_states = hidden_states[after_forward_duplicated_img_mask]
@@ -435,7 +452,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         
         # pad img logits
         dim_to_pad = logits.shape[-1] - img_logits.shape[-1]
-        img_logits = torch.cat([img_logits, torch.ones(img_logits.shape[0], dim_to_pad, device=img_logits.device, dtype=img_logits.dtype)*1e9], dim=-1)
+        img_logits = torch.cat([img_logits, torch.ones(img_logits.shape[0], dim_to_pad, device=img_logits.device, dtype=img_logits.dtype)*(-1e9)], dim=-1)
         
         logits[~after_forward_input_img_mask] = text_logits
         logits[after_forward_input_img_mask] = img_logits
