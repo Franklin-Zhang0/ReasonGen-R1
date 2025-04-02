@@ -156,7 +156,7 @@ class DataParallelPPOActor(BasePPOActor):
                                            cfg_weight = self.cfg_weight,
                                            detach_uncond = self.detach_uncond,
                                            use_cache=False)  # prevent model thinks we are generating
-                logits = output.logits
+                logits = output['logits'] if isinstance(output, dict) else output.logits
                 logits.div_(temperature)
                 logits = logits[:, -response_length - 1:-1, :]  # (bsz, response_length, vocab_size)
                 log_probs = logprobs_from_logits(logits, micro_batch['responses'])
@@ -238,7 +238,7 @@ class DataParallelPPOActor(BasePPOActor):
 
         temperature = data.meta_info['temperature']  # temperature must be in the data.meta_info to avoid slient error
 
-        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages']
+        select_keys = ['responses', 'input_ids', 'attention_mask', 'position_ids', 'old_log_probs', 'advantages', 'seq_img_mask']
         if self.config.use_kl_loss:
             select_keys.append('ref_log_prob')
         batch = data.select(batch_keys=select_keys).batch

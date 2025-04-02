@@ -15,7 +15,7 @@ python3 -m verl.trainer.image_generation_rl \
     data.train_files=/blob/franklin/datasets/Janus_RL/yuvalkirstain___pickapic_v2/ \
     data.val_files=/blob/franklin/datasets/Janus_RL/yuvalkirstain___pickapic_v2/ \
     data.system_prompt="$SYSTEM_PROMPT" \
-    data.train_batch_size=32 \
+    data.train_batch_size=16 \
     data.max_prompt_length=512 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
@@ -23,7 +23,7 @@ python3 -m verl.trainer.image_generation_rl \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
-    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=4 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.actor.use_kl_loss=True \
     actor_rollout_ref.actor.kl_loss_coef=0.001 \
@@ -46,7 +46,7 @@ python3 -m verl.trainer.image_generation_rl \
     trainer.logger=['console'] \
     trainer.project_name='verl_janus_test' \
     trainer.experiment_name=$RUN_NAME \
-    trainer.n_gpus_per_node=8 \
+    trainer.n_gpus_per_node=4 \
     trainer.nnodes=1 \
     trainer.save_freq=-1 \
     trainer.test_freq=5 \
