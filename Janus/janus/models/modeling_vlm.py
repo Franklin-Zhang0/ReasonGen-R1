@@ -300,19 +300,24 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         sentence_start_token_id = input_ids[0, last_pad_idx[0]]
         assert sentence_start_token_id == 100000, f"sentence start token id should be 100000 for Janus Pro model, but got {sentence_start_token_id}"
         
-        tokens = torch.zeros((parallel_size*2, input_ids.shape[1]), dtype=torch.int).cuda()
-        for i in range(parallel_size*2):
-            tokens[i, :] = input_ids[i//2]
-            if i % 2 != 0:
-                tokens[i, :-1] = pad_token_id
-                tokens[i, last_pad_idx[i//2]] = sentence_start_token_id
-            assert attention_mask[i//2, last_pad_idx[i//2]] == 1, f"attention mask should be 1 at the sentence start token"
+        if cfg_weight == 1.0:
+            tokens = input_ids
+            duplicated_parallel_size = parallel_size
+        else:
+            duplicated_parallel_size = parallel_size*2
+            tokens = torch.zeros((parallel_size*2, input_ids.shape[1]), dtype=torch.int).cuda()
+            for i in range(parallel_size*2):
+                tokens[i, :] = input_ids[i//2]
+                if i % 2 != 0:
+                    tokens[i, :-1] = pad_token_id
+                    tokens[i, last_pad_idx[i//2]] = sentence_start_token_id
+                assert attention_mask[i//2, last_pad_idx[i//2]] == 1, f"attention mask should be 1 at the sentence start token"
+            attention_mask = attention_mask.repeat(2, 1)
                 
         inputs_embeds = self.language_model.get_input_embeddings()(tokens)
                 
         generated_tokens = torch.zeros((parallel_size, image_token_num_per_image), dtype=torch.int).cuda()
         
-        attention_mask = attention_mask.repeat(2, 1)
         
         position_ids = torch.clip(torch.cumsum(attention_mask, dim=-1) - 1, min=0, max=None).cuda()
         
@@ -326,10 +331,13 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             hidden_states = outputs.last_hidden_state
             
             logits = self.gen_head(hidden_states[:, -1, :])
-            logit_cond = logits[0::2, :]
-            logit_uncond = logits[1::2, :]
-            
-            logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
+            if cfg_weight == 1.0:
+                logits = logits
+            else:
+                logit_cond = logits[0::2, :]
+                logit_uncond = logits[1::2, :]
+                
+                logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
             
             if not do_sample:
                 next_token = torch.argmax(logits, dim=-1)
@@ -338,12 +346,15 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                 next_token = torch.multinomial(probs, num_samples=1)
                 
             generated_tokens[:, i] = next_token.squeeze(dim=-1)
-
-            next_token = torch.cat([next_token.unsqueeze(dim=1), next_token.unsqueeze(dim=1)], dim=1).view(-1)
+            
+            if cfg_weight == 1.0:
+                next_token = next_token.view(-1)
+            else:
+                next_token = torch.cat([next_token.unsqueeze(dim=1), next_token.unsqueeze(dim=1)], dim=1).view(-1)
             img_embeds = self.prepare_gen_img_embeds(next_token)
             
             inputs_embeds = img_embeds.unsqueeze(dim=1)
-            attention_mask = torch.cat([attention_mask, torch.ones((parallel_size*2, 1), dtype=torch.int, device=attention_mask.device)], dim=1)
+            attention_mask = torch.cat([attention_mask, torch.ones((duplicated_parallel_size, 1), dtype=torch.int, device=attention_mask.device)], dim=1)
             position_ids = (position_ids[:,-1:] + 1).cuda()
             
             
@@ -404,21 +415,28 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         """
         
         parallel_size = input_ids.shape[0]
-        
-        tokens = torch.zeros((parallel_size*2, input_ids.shape[1]), dtype=torch.int).cuda()
-        duplicated_img_mask = torch.zeros((parallel_size*2, input_img_mask.shape[1]), dtype=torch.bool).cuda()
-        duplicated_attn_mask = torch.zeros((parallel_size*2, attention_mask.shape[1]), dtype=torch.bool).cuda()
-        duplicated_position_ids = torch.zeros((parallel_size*2, position_ids.shape[1]), dtype=torch.int).cuda()
-        
-        for i in range(parallel_size*2):
-            tokens[i, :] = input_ids[i//2]
-            duplicated_attn_mask[i, :] = attention_mask[i//2]
-            duplicated_img_mask[i, :] = input_img_mask[i//2]
-            duplicated_position_ids[i, :] = position_ids[i//2]
-            if i % 2 != 0:
-                tokens[i, ~duplicated_img_mask[i]] = torch.where((tokens[i, ~duplicated_img_mask[i]] != bos_token_id) & (tokens[i, ~duplicated_img_mask[i]] != image_start_token_id), pad_token_id, tokens[i, ~duplicated_img_mask[i]])
+        if cfg_weight == 1.0:
+            tokens = input_ids
+            duplicated_img_mask = input_img_mask
+            duplicated_attn_mask = attention_mask
+            duplicated_position_ids = position_ids
+            duplicated_parallel_size = parallel_size
+        else:
+            tokens = torch.zeros((parallel_size*2, input_ids.shape[1]), dtype=torch.int).cuda()
+            duplicated_img_mask = torch.zeros((parallel_size*2, input_img_mask.shape[1]), dtype=torch.bool).cuda()
+            duplicated_attn_mask = torch.zeros((parallel_size*2, attention_mask.shape[1]), dtype=torch.bool).cuda()
+            duplicated_position_ids = torch.zeros((parallel_size*2, position_ids.shape[1]), dtype=torch.int).cuda()
+            duplicated_parallel_size = parallel_size*2
+            
+            for i in range(parallel_size*2):
+                tokens[i, :] = input_ids[i//2]
+                duplicated_attn_mask[i, :] = attention_mask[i//2]
+                duplicated_img_mask[i, :] = input_img_mask[i//2]
+                duplicated_position_ids[i, :] = position_ids[i//2]
+                if i % 2 != 0:
+                    tokens[i, ~duplicated_img_mask[i]] = torch.where((tokens[i, ~duplicated_img_mask[i]] != bos_token_id) & (tokens[i, ~duplicated_img_mask[i]] != image_start_token_id), pad_token_id, tokens[i, ~duplicated_img_mask[i]])
                 
-        after_forward_duplicated_img_mask = torch.cat([duplicated_img_mask, torch.ones(parallel_size*2, 1, device=duplicated_img_mask.device, dtype=torch.bool)], dim=-1)[:, 1:]
+        after_forward_duplicated_img_mask = torch.cat([duplicated_img_mask, torch.ones(duplicated_parallel_size, 1, device=duplicated_img_mask.device, dtype=torch.bool)], dim=-1)[:, 1:]
         after_forward_input_img_mask = torch.cat([input_img_mask, torch.ones(parallel_size, 1, device=input_img_mask.device, dtype=torch.bool)], dim=-1)[:, 1:]
         
         text_embeds = self.language_model.get_input_embeddings()(tokens[~duplicated_img_mask])
@@ -426,7 +444,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         for i in range(len(tokens)):
             img_embeds_list.append(self.prepare_gen_img_embeds(tokens[i, duplicated_img_mask[i]].view(-1)))
         img_embeds = torch.cat(img_embeds_list, dim=0)
-        inputs_embeds = torch.zeros((parallel_size*2, input_ids.shape[1], text_embeds.shape[-1]), dtype=text_embeds.dtype).cuda()
+        inputs_embeds = torch.zeros((duplicated_parallel_size, input_ids.shape[1], text_embeds.shape[-1]), dtype=text_embeds.dtype).cuda()
         inputs_embeds[~duplicated_img_mask,:] = text_embeds
         inputs_embeds[duplicated_img_mask,:] = img_embeds
         
@@ -437,17 +455,23 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             outputs = checkpoint_wrapper(fn, self.gradient_checkpointing_kwargs)(inputs_embeds, duplicated_attn_mask, duplicated_position_ids)
             
         hidden_states = outputs.last_hidden_state
-        text_hidden_states = hidden_states[~after_forward_duplicated_img_mask][0::2]
+        
+        text_hidden_states = hidden_states[~after_forward_duplicated_img_mask]
         img_hidden_states = hidden_states[after_forward_duplicated_img_mask]
         
         text_logits = self.language_model.lm_head(text_hidden_states)
         img_logits = self.gen_head(img_hidden_states)
-        logit_cond = img_logits[0::2, :]
-        logit_uncond = img_logits[1::2, :]
-        if detach_uncond:
-            img_logits = logit_uncond.detach() + cfg_weight * (logit_cond-logit_uncond.detach())
+        
+        if cfg_weight == 1.0:
+            pass
         else:
-            img_logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
+            logit_cond = img_logits[0::2, :]
+            logit_uncond = img_logits[1::2, :]
+            if detach_uncond:
+                img_logits = logit_uncond.detach() + cfg_weight * (logit_cond-logit_uncond.detach())
+            else:
+                img_logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
+            text_logits = text_logits[0::2]
         logits = torch.zeros((parallel_size, input_ids.shape[1], text_logits.shape[-1]), dtype=text_logits.dtype, device=img_logits.device)
         
         # pad img logits
