@@ -440,13 +440,12 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         after_forward_input_img_mask = torch.cat([input_img_mask, torch.ones(parallel_size, 1, device=input_img_mask.device, dtype=torch.bool)], dim=-1)[:, 1:]
         
         text_embeds = self.language_model.get_input_embeddings()(tokens[~duplicated_img_mask])
-        img_embeds_list = []
-        for i in range(len(tokens)):
-            img_embeds_list.append(self.prepare_gen_img_embeds(tokens[i, duplicated_img_mask[i]].view(-1)))
-        img_embeds = torch.cat(img_embeds_list, dim=0)
+
         inputs_embeds = torch.zeros((duplicated_parallel_size, input_ids.shape[1], text_embeds.shape[-1]), dtype=text_embeds.dtype).cuda()
-        inputs_embeds[~duplicated_img_mask,:] = text_embeds
-        inputs_embeds[duplicated_img_mask,:] = img_embeds
+        
+        for i in range(duplicated_parallel_size):
+            inputs_embeds[i, duplicated_img_mask[i], :] = self.prepare_gen_img_embeds(input_ids[i//2, duplicated_img_mask[i]].view(-1))
+            inputs_embeds[i, ~duplicated_img_mask[i], :] = text_embeds[i]
         
         if not self.enable_gradient_checkpointing:
             outputs = self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=duplicated_attn_mask, position_ids=duplicated_position_ids, use_cache=use_cache)
