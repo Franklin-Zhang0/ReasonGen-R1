@@ -12,8 +12,7 @@ export HYDRA_FULL_ERROR=1
 if [ "$RANK" -eq 0 ]; then
 python3 -m verl.trainer.image_generation_rl \
     algorithm.adv_estimator=grpo \
-    data.train_files=/blob/franklin/datasets/Janus_RL/yuvalkirstain___pickapic_v2/ \
-    data.val_files=/blob/franklin/datasets/Janus_RL/yuvalkirstain___pickapic_v2/ \
+    data.train_files=/blob/franklin/datasets/Janus_RL/gen_eval/prompts.txt \
     data.system_prompt="$SYSTEM_PROMPT" \
     data.train_batch_size=4 \
     data.max_prompt_length=512 \
@@ -37,7 +36,7 @@ python3 -m verl.trainer.image_generation_rl \
     actor_rollout_ref.rollout.name=hf \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=4 \
-    actor_rollout_ref.model.cfg_weight=1.0 \
+    actor_rollout_ref.model.cfg_weight=2.0 \
     actor_rollout_ref.model.detach_uncond=True \
     actor_rollout_ref.rollout.micro_batch_size=4 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
