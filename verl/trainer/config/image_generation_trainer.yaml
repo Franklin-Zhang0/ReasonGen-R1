@@ -170,6 +170,11 @@ custom_reward_function:
   path: null
   name: compute_score
 
+img_saving:
+  path: /home/aiscuser/project/Image-RL/generated_samples
+  num: 8
+  save_freq: 10
+
 algorithm:
   gamma: 1.0
   lam: 1.0

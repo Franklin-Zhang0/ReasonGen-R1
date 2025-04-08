@@ -43,6 +43,8 @@ from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn, DummyJanusDPO
 from verl.utils.tracking import ValidationGenerationsLogger
 from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
+import PIL
+import wandb
 
 WorkerType = Type[Worker]
 
@@ -537,9 +539,13 @@ class RayPPOTrainer(object):
             print('validation generation end')
 
             # Store generated outputs
-            output_ids = test_output_gen_batch.batch['responses']
-            output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
-            sample_outputs.extend(output_texts)
+            # output_ids = test_output_gen_batch.batch['responses']
+            # output_texts = [self.tokenizer.decode(ids, skip_special_tokens=True) for ids in output_ids]
+            # sample_outputs.extend(output_texts)
+            output_imgs = test_output_gen_batch.batch['gen_img']
+            output_imgs = output_imgs.to('cpu').numpy() if isinstance(output_imgs, torch.Tensor) else output_imgs
+            output_img_list = [wandb.Image(PIL.Image.fromarray(img), caption=input_texts[i]) for i, img in enumerate(output_imgs)]
+            sample_outputs.extend(output_img_list)
 
             test_batch = test_batch.union(test_output_gen_batch)
 

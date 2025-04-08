@@ -18,32 +18,58 @@ import torch
 
 import os
 import PIL
+import datetime
 
 class ImageGenerationRewardManager:
     """The reward manager.
     """
 
-    def __init__(self, tokenizer, num_examine, compute_score=None) -> None:
+    def __init__(self, tokenizer, num_examine, compute_score=None, eval=False, img_saving_args={}) -> None:
         self.tokenizer = tokenizer
         self.num_examine = num_examine  # the number of batches of decoded responses to print to the console
         self.compute_score = compute_score or _default_compute_score
+        self.steps = 0
+        self.save_freq = img_saving_args.save_freq
+        self.save_num = img_saving_args.num
+        self.save_path = img_saving_args.path
+        time_stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        self.save_path = os.path.join(self.save_path, time_stamp)
+        if eval:
+            self.save_path = os.path.join(self.save_path, "eval")
+        else:
+            self.save_path = os.path.join(self.save_path, "train")
+        
+    def save_img(self, data: DataProto):
+        gen_img = data.batch['gen_img']
+        gen_img = gen_img.to('cpu').numpy() if isinstance(gen_img, torch.Tensor) else gen_img
+        step_dir = os.path.join(self.save_path, str(self.steps))
+        os.makedirs(step_dir, exist_ok=True)
+        
+        for i in range(min(len(gen_img), self.save_num)):
+            save_path = os.path.join(step_dir, "img_{}.jpg".format(i))
+            PIL.Image.fromarray(gen_img[i]).save(save_path)
+            prompt = data.batch['prompts'][i]
+            with open(os.path.join(step_dir, "prompts.txt".format(i)), 'a') as f:
+                f.write(self.tokenizer.decode(prompt, skip_special_tokens=True))
+                
 
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""
 
+        # save generated images
+        if self.steps % self.save_freq == 0:
+            self.save_img(data)
+        self.steps += 1
+            
+        print("Images saved to 'generated_samples' folder")
+        
         # If there is rm score, we directly return rm score. Otherwise, we compute via rm_score_fn
         if 'rm_scores' in data.batch.keys():
             return data.batch['rm_scores']
 
         reward_tensor = torch.zeros_like(data.batch['responses'], dtype=torch.float32)
-        reward_tensor[0, -576:] = 1
-        gen_img = data.batch['gen_img']
-        gen_img = gen_img.to('cpu').numpy() if isinstance(gen_img, torch.Tensor) else gen_img
-        os.makedirs('/home/aiscuser/project/Image-RL/generated_samples', exist_ok=True)
-        for i in range(min(len(gen_img), 4)):
-            save_path = os.path.join('/home/aiscuser/project/Image-RL/generated_samples', "img_{}.jpg".format(i))
-            PIL.Image.fromarray(gen_img[i]).save(save_path)
-        print("Images saved to 'generated_samples' folder")
+        reward_tensor[0, -1] = 1
+        
         
         return reward_tensor
         # already_print_data_sources = {}
