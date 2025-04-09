@@ -318,8 +318,8 @@ class JanusTextOnlyRLHFDataset(Dataset):
         input_ids = input_ids[0]
         attention_mask = attention_mask[0]
         sentence_start_token, image_start_token = self.tokenizer.encode(self.processor.image_start_tag)
-        input_ids = torch.cat([torch.LongTensor([self.tokenizer.pad_token_id]), input_ids, torch.LongTensor([image_start_token])])
-        attention_mask = torch.cat([torch.LongTensor([0]), attention_mask, torch.LongTensor([1])])
+        input_ids = torch.cat([torch.LongTensor([self.tokenizer.pad_token_id]), input_ids])
+        attention_mask = torch.cat([torch.LongTensor([0]), attention_mask])
 
         num_pad = torch.sum(input_ids == self.tokenizer.pad_token_id, dim=-1)
         last_pad_idx = num_pad - 1

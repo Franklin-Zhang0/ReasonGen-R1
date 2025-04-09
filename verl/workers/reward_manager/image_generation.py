@@ -50,7 +50,7 @@ class ImageGenerationRewardManager:
             PIL.Image.fromarray(gen_img[i]).save(save_path)
             prompt = data.batch['prompts'][i]
             with open(os.path.join(step_dir, "prompts.txt".format(i)), 'a') as f:
-                f.write(self.tokenizer.decode(prompt, skip_special_tokens=True))
+                f.write(f'{self.tokenizer.decode(prompt, skip_special_tokens=False)}\n')
                 
 
     def __call__(self, data: DataProto):
