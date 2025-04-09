@@ -121,6 +121,7 @@ class vLLMRollout(BaseRollout):
             max_num_batched_tokens=max_num_batched_tokens,
             enable_chunked_prefill=config.enable_chunked_prefill,
             enable_prefix_caching=True,
+            limit_mm_per_prompt={"image": 2},
         )
 
         # Offload vllm model to reduce peak memory usage
@@ -264,7 +265,7 @@ class vLLMRollout(BaseRollout):
         # prompt: left pad + response: right pad
         # attention_mask: [0,0,0,0,1,1,1,1, | 1,1,1,0,0,0,0,0]
         # position_ids:   [0,0,0,0,0,1,2,3, | 4,5,6,7,8,9,10,11]
-        response_position_ids = position_ids[:, -1:] + delta_position_id
+        response_position_ids = position_ids[..., -1:] + delta_position_id
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
         response_attention_mask = get_eos_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)

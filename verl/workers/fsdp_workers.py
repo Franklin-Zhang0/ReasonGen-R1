@@ -1041,6 +1041,26 @@ class RewardModelWorker(Worker):
             cpu_offload=CPUOffload(offload_params=True),
             forward_prefetch=False,
             device_mesh=self.device_mesh)
+        
+        self.rollout_name = self.config.rollout.get('rollout_name', 'vllm')
+        if self.rollout_name == 'vllm':
+            from verl.workers.rollout.vllm_rollout import vLLMRollout, vllm_mode
+            from verl.workers.sharding_manager import FSDPVLLMShardingManager
+            infer_tp = self.config.rollout.tensor_model_parallel_size
+            dp = self.world_size // infer_tp
+            rollout_device_mesh = init_device_mesh('cuda', mesh_shape=(dp, infer_tp), mesh_dim_names=['dp', 'infer_tp'])
+            
+            self.rollout = vLLMRollout(model_path=config.model.path,
+                config=self.config.rollout,
+                tokenizer=self.tokenizer,
+                model_hf_config=model_config,
+                device_mesh=rollout_device_mesh)
+            self.rollout_sharding_manager = FSDPVLLMShardingManager(module=reward_module,
+                                            inference_engine=self.rollout.inference_engine,
+                                            model_config=model_config,
+                                            full_params='hf' in self.config.rollout.load_format,
+                                            device_mesh=rollout_device_mesh)
+
 
         return reward_module
 
@@ -1055,6 +1075,7 @@ class RewardModelWorker(Worker):
         for i, text in enumerate(output_text):
             better_idx = extract_boxed_content(text)
             try:
+                assert better_idx in ['1', '2'], f'Invalid output text: {text}'
                 better_idx = int(better_idx) - 1 # idx start from 1 in the text, -1 to make it start from 0
                 scores[i*2 + better_idx] = 1.0
             except:
@@ -1063,22 +1084,29 @@ class RewardModelWorker(Worker):
 
     def _forward_micro_batch(self, micro_batch):
         with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-            input_ids = micro_batch['input_ids']
-            # batch_size, seqlen = input_ids.shape
-            attention_mask = micro_batch['attention_mask']
-            position_ids = micro_batch['position_ids']
+            if self.rollout_name == 'hf':
+                input_ids = micro_batch.batch['input_ids']
+                attention_mask = micro_batch.batch['attention_mask']
+                position_ids = micro_batch.batch['position_ids']
+                generated_ids = self.reward_module.generate(
+                                            input_ids=input_ids,
+                                            attention_mask=attention_mask,
+                                            position_ids=position_ids,
+                                            pixel_values=micro_batch['pixel_values'],
+                                            image_grid_thw=micro_batch['image_grid_thw'].reshape(-1, 3),
+                                            max_new_tokens=self.config.model.max_new_tokens,
+                                            use_cache=True)
+                generated_ids_trimmed = [
+                    out_ids[len(in_ids) :] for in_ids, out_ids in zip(input_ids, generated_ids)
+                ]
+                
+            elif self.rollout_name == 'vllm':
+                micro_batch.meta_info['eos_token_id'] = self.processor.tokenizer.eos_token_id
+                micro_batch.meta_info['do_sample'] = False
+                output = self.rollout.generate_sequences(
+                                            micro_batch)
+                generated_ids_trimmed = output.batch['responses']
             
-            generated_ids = self.reward_module.generate(
-                                        input_ids=input_ids,
-                                        attention_mask=attention_mask,
-                                        position_ids=position_ids,
-                                        pixel_values=micro_batch['pixel_values'],
-                                        image_grid_thw=micro_batch['image_grid_thw'].reshape(-1, 3),
-                                        max_new_tokens=self.config.model.max_new_tokens,
-                                        use_cache=True)
-            generated_ids_trimmed = [
-                out_ids[len(in_ids) :] for in_ids, out_ids in zip(input_ids, generated_ids)
-            ]
             output_text = self.processor.batch_decode(
                 generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
             )
@@ -1123,6 +1151,11 @@ class RewardModelWorker(Worker):
             'image_grid_thw': [],
             'position_ids': [],
         }
+        non_tensor_dict = {
+            'uid': [],
+            'multi_modal_data': [],
+            'raw_prompt_ids': [],
+        }
         
         new_rank = []
         
@@ -1145,10 +1178,13 @@ class RewardModelWorker(Worker):
             uids.append(uid)
             
             imgs = [process_image(img) for img in imgs]
+            multi_modal_data = {'image': imgs}
             image_inputs = self.processor.image_processor(imgs, return_tensors='pt')
             image_grid_thw = image_inputs['image_grid_thw']
             for key, value in image_inputs.items():
                 input_dict[key].append(value)
+                
+            raw_prompt = prompt_with_chat_template.replace('<image>', '<|vision_start|><|image_pad|><|vision_end|>')
 
             if image_grid_thw is not None:
                 merge_length = self.processor.image_processor.merge_size**2
@@ -1164,8 +1200,6 @@ class RewardModelWorker(Worker):
 
                 prompt_with_chat_template = prompt_with_chat_template.replace('<|placeholder|>',
                                                                               self.processor.image_token)
-            else:
-                raw_prompt = prompt_with_chat_template
 
             input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
                                                                             tokenizer=self.tokenizer,
@@ -1175,6 +1209,12 @@ class RewardModelWorker(Worker):
                                                                             truncation='right')
             input_dict['input_ids'].append(input_ids[0])
             input_dict['attention_mask'].append(attention_mask[0])
+            
+            raw_prompt_ids = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
+            non_tensor_dict['raw_prompt_ids'].append(raw_prompt_ids)
+            non_tensor_dict['multi_modal_data'].append(multi_modal_data)
+            non_tensor_dict['uid'].append(uid)
+            
             
             from verl.models.transformers.qwen2_vl import get_rope_index
             input_dict['position_ids'].append(
@@ -1187,10 +1227,12 @@ class RewardModelWorker(Worker):
             )
             
         for key in input_dict:
-            input_dict[key] = torch.stack(input_dict[key], dim=0)
+            if isinstance(input_dict[key][0], torch.Tensor):
+                input_dict[key] = torch.stack(input_dict[key], dim=0)
         
         
-        return DataProto.from_dict(input_dict, non_tensors={'uid': uids}), new_rank
+        return DataProto.from_dict(input_dict, non_tensors=non_tensor_dict), new_rank
+        
                 
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -1208,27 +1250,21 @@ class RewardModelWorker(Worker):
         rm_data.batch = rm_data.batch.to(torch.cuda.current_device())
 
         # perform forward computation
-        with self.ulysses_sharding_manager:
-            rm_data = self.ulysses_sharding_manager.preprocess_data(data=rm_data)
-            data = self.ulysses_sharding_manager.preprocess_data(data=data)
+        manager = self.ulysses_sharding_manager if self.rollout_name == 'hf' else self.rollout_sharding_manager
+        with manager:
+            log_gpu_memory_usage('After entering rollout sharding manager', logger=logger)
+            rm_data = manager.preprocess_data(data=rm_data)
+            data = manager.preprocess_data(data=data)
 
-            use_dynamic_bsz = self.config.use_dynamic_bsz
-            if use_dynamic_bsz:
-                max_token_len = self.config.forward_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
-                micro_batches, indices = rearrange_micro_batches(batch=rm_data.batch, max_token_len=max_token_len)
-            else:
-                micro_batches = rm_data.batch.split(self.config.micro_batch_size_per_gpu)
+            num_micro_batches = max(len(rm_data.batch) // self.config.micro_batch_size_per_gpu, 1)
+            micro_batches = rm_data.chunk(num_micro_batches)
             output = []
             for micro_batch in micro_batches:
                 rm_score = self._forward_micro_batch(micro_batch)
                 output.append(rm_score)
             scores = torch.cat(output, dim=0)  # (batch_size)
+            log_gpu_memory_usage('After rollout generation', logger=logger)
 
-            if use_dynamic_bsz:
-                indices = list(itertools.chain.from_iterable(indices))
-                assert len(indices) == scores.size(0), f"{len(indices)} vs. {scores.size()}"
-                revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
-                scores = scores[revert_indices]
             
             if self._do_switch_chat_template:
                 print(scores, new_rank)
@@ -1237,7 +1273,7 @@ class RewardModelWorker(Worker):
             token_level_scores = self._expand_to_token_level(data, scores)
             # Note that this is only the scores, may not be the final rewards used to train RL
             output = DataProto.from_dict(tensors={'rm_scores': token_level_scores})
-            output = self.ulysses_sharding_manager.postprocess_data(data=output)
+            output = manager.postprocess_data(data=output)
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
