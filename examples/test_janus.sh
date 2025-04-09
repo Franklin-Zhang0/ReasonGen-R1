@@ -5,7 +5,7 @@ export VLLM_ATTENTION_BACKEND=XFORMERS
 SYSTEM_PROMPT="Reason about how you should generate the image"
 
 GPUS=`nvidia-smi -L | wc -l`
-MODEL_PATH=/blob/franklin/models/huggingface/Janus-Pro-1B  # replace it with your local file path
+RM_MODEL_PATH=Qwen/Qwen2.5-VL-7B-Instruct
 RUN_NAME="test"
 export HYDRA_FULL_ERROR=1
 
@@ -52,7 +52,9 @@ python3 -m verl.trainer.image_generation_rl \
     trainer.test_freq=5 \
     trainer.total_epochs=15 \
     ++trainer.val_before_train=False \
-    reward_model.reward_manager=image_generation
+    reward_model.reward_manager=image_generation \
+    reward_model.model.path=$RM_MODEL_PATH \
+    reward_model.micro_batch_size_per_gpu=4
     
 python ~/thinking.py > /dev/null 2>&1
 
