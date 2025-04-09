@@ -54,7 +54,8 @@ python3 -m verl.trainer.image_generation_rl \
     ++trainer.val_before_train=False \
     reward_model.reward_manager=image_generation \
     reward_model.model.path=$RM_MODEL_PATH \
-    reward_model.micro_batch_size_per_gpu=4
+    reward_model.micro_batch_size_per_gpu=4 \
+    img_saving.save_freq=5 \
     
 python ~/thinking.py > /dev/null 2>&1
 

@@ -1055,7 +1055,7 @@ class RewardModelWorker(Worker):
         for i, text in enumerate(output_text):
             better_idx = extract_boxed_content(text)
             try:
-                better_idx = int(better_idx)
+                better_idx = int(better_idx) - 1 # idx start from 1 in the text, -1 to make it start from 0
                 scores[i*2 + better_idx] = 1.0
             except:
                 pass
@@ -1124,6 +1124,8 @@ class RewardModelWorker(Worker):
             'position_ids': [],
         }
         
+        new_rank = []
+        
         for uid in uid_group:
             indices = uid_group[uid]
             first_idx = indices[0]
@@ -1133,6 +1135,7 @@ class RewardModelWorker(Worker):
             for idx in indices:
                 img = data.batch['gen_img'][idx]
                 imgs.append(PIL.Image.fromarray(img.cpu().numpy()))
+                new_rank.append(idx)
             chat = [{'role': 'user', 
                      'content': [{'type': 'text', 'text': template.format(prompt=prompt) + template_postfix}],
                     }]
@@ -1187,7 +1190,7 @@ class RewardModelWorker(Worker):
             input_dict[key] = torch.stack(input_dict[key], dim=0)
         
         
-        return DataProto.from_dict(input_dict, non_tensors={'uid': uids})
+        return DataProto.from_dict(input_dict, non_tensors={'uid': uids}), new_rank
                 
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
@@ -1199,7 +1202,7 @@ class RewardModelWorker(Worker):
         # Support all hardwares
         data = data.to(torch.cuda.current_device())
         if self._do_switch_chat_template:
-            rm_data = self._switch_chat_template(data)
+            rm_data, new_rank = self._switch_chat_template(data)
 
         # Support all hardwares
         rm_data.batch = rm_data.batch.to(torch.cuda.current_device())
@@ -1226,6 +1229,10 @@ class RewardModelWorker(Worker):
                 assert len(indices) == scores.size(0), f"{len(indices)} vs. {scores.size()}"
                 revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
                 scores = scores[revert_indices]
+            
+            if self._do_switch_chat_template:
+                print(scores, new_rank)
+                scores[new_rank] = scores.clone()
 
             token_level_scores = self._expand_to_token_level(data, scores)
             # Note that this is only the scores, may not be the final rewards used to train RL

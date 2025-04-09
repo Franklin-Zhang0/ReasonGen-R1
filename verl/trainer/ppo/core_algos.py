@@ -263,13 +263,18 @@ def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_ba
 
     return advantages, returns
 
+def compute_dpo_outcome_advantage(token_level_rewards: torch.Tensor, beta: float):
+    token_level_rewards *= beta
+    
+    return token_level_rewards, token_level_rewards
+
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
     kl = old_log_prob - ref_log_prob
     return token_level_scores - kl * kl_ratio
 
 
-def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange):
+def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange, uids=None, algo_name=None):
     """Adapted from https://github.com/huggingface/trl/blob/main/trl/trainer/ppo_trainer.py#L1122
 
     Args:
@@ -291,16 +296,50 @@ def compute_policy_loss(old_log_prob, log_prob, advantages, eos_mask, cliprange)
             a float number indicating the fraction of policy gradient loss being clipped
 
     """
-    negative_approx_kl = log_prob - old_log_prob
-    ratio = torch.exp(negative_approx_kl)
-    ppo_kl = verl_F.masked_mean(-negative_approx_kl, eos_mask)
+    if algo_name != 'dpo':
+        negative_approx_kl = log_prob - old_log_prob
+        ratio = torch.exp(negative_approx_kl)
+        ppo_kl = verl_F.masked_mean(-negative_approx_kl, eos_mask)
 
-    pg_losses = -advantages * ratio
-    pg_losses2 = -advantages * torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)
+        pg_losses = -advantages * ratio
+        pg_losses2 = -advantages * torch.clamp(ratio, 1.0 - cliprange, 1.0 + cliprange)
 
-    pg_loss = verl_F.masked_mean(torch.max(pg_losses, pg_losses2), eos_mask)
-    pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses).float(), eos_mask)
-    return pg_loss, pg_clipfrac, ppo_kl
+        pg_loss = verl_F.masked_mean(torch.max(pg_losses, pg_losses2), eos_mask)
+        pg_clipfrac = verl_F.masked_mean(torch.gt(pg_losses2, pg_losses).float(), eos_mask)
+        return pg_loss, pg_clipfrac, ppo_kl
+    else:
+        assert uids is not None, "uid should be provided for dpo"
+        # print("uids", uids)
+        uid_group = {}
+        for i in range(len(uids)):
+            uid = uids[i]
+            if uid not in uid_group:
+                uid_group[uid] = []
+            uid_group[uid].append(i)
+        
+        pg_losses = []
+        for uid in uid_group:
+            indices = uid_group[uid]
+            assert len(indices) == 2, "uid should have two indices, but got {}".format(len(indices))
+            adv1, adv2 = advantages[indices[0]], advantages[indices[1]]
+            if torch.sum(adv1) > torch.sum(adv2):
+                win_id, lose_id = indices[0], indices[1]
+            elif torch.sum(adv1) < torch.sum(adv2):
+                win_id, lose_id = indices[1], indices[0]
+            else: # error in reward model, no winner
+                win_id, lose_id = indices[0], indices[0]
+            win_log_prob, lose_log_prob = log_prob[win_id], log_prob[lose_id]
+            win_old_log_prob, lose_old_log_prob = old_log_prob[win_id], old_log_prob[lose_id]
+            pi_log_ratio = win_log_prob - lose_log_prob
+            pi_log_ratio_old = win_old_log_prob - lose_old_log_prob
+            ratio = pi_log_ratio - pi_log_ratio_old
+            pg_loss = -torch.nn.functional.logsigmoid(torch.mean(advantages[win_id]) * ratio) # torch.mean(advantages[win_id]) is beta
+            pg_losses.append(pg_loss)
+        pg_loss = torch.mean(torch.stack(pg_losses))
+        pg_clipfrac = torch.zeros(1).to(pg_loss.device)
+        ppo_kl = torch.zeros(1).to(pg_loss.device)
+        return pg_loss, pg_clipfrac, ppo_kl
+            
 
 
 def compute_entropy_loss(logits, eos_mask):
