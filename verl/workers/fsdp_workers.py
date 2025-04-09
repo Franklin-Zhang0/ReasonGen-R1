@@ -39,6 +39,9 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils.flops_counter import FlopsCounter
 from verl.utils.checkpoint.fsdp_checkpoint_manager import FSDPCheckpointManager
 from verl.workers.sharding_manager.fsdp_ulysses import FSDPUlyssesShardingManager
+from mathruler.grader import extract_boxed_content
+from qwen_vl_utils import process_vision_info
+import PIL
 
 from codetiming import Timer
 
@@ -924,7 +927,29 @@ class CriticWorker(Worker):
             offload_fsdp_optimizer(self.critic_optimizer)
 
 
-# TODO(sgm): we may need to extract it to dp_reward_model.py
+def process_image(image: dict, max_pixels: int = 2048 * 2048, min_pixels: int = 512 * 512):
+    import math
+    from io import BytesIO
+    from PIL import Image
+
+    if isinstance(image, dict):
+        image = Image.open(BytesIO(image['bytes']))
+
+    if (image.width * image.height) > max_pixels:
+        resize_factor = math.sqrt(max_pixels / (image.width * image.height))
+        width, height = int(image.width * resize_factor), int(image.height * resize_factor)
+        image = image.resize((width, height))
+
+    if (image.width * image.height) < min_pixels:
+        resize_factor = math.sqrt(min_pixels / (image.width * image.height))
+        width, height = int(image.width * resize_factor), int(image.height * resize_factor)
+        image = image.resize((width, height))
+
+    if image.mode != 'RGB':
+        image = image.convert('RGB')
+
+    return image
+
 class RewardModelWorker(Worker):
     """
     Note that we only implement the reward model that is subclass of AutoModelForTokenClassification.
@@ -963,20 +988,19 @@ class RewardModelWorker(Worker):
 
     def _build_model(self, config):
         # the following line is necessary
-        from transformers import AutoModelForTokenClassification, AutoConfig
+        from transformers import Qwen2_5_VLForConditionalGeneration, AutoConfig
         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, CPUOffload
 
         # download the checkpoint from hdfs
         local_path = copy_to_local(config.model.path)
 
-        if self.config.model.input_tokenizer is None:
-            self._do_switch_chat_template = False
-        else:
-            self._do_switch_chat_template = True
-            input_tokenizer_local_path = copy_to_local(config.model.input_tokenizer)
-            self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path,
-                                                trust_remote_code=config.model.get('trust_remote_code', False))
-            self.tokenizer = hf_tokenizer(local_path, trust_remote_code=config.model.get('trust_remote_code', False))
+        self._do_switch_chat_template = True
+        input_tokenizer_local_path = copy_to_local(config.model.input_tokenizer)
+        self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path,
+                                            trust_remote_code=config.model.get('trust_remote_code', False))
+        self.tokenizer = hf_tokenizer(local_path, trust_remote_code=config.model.get('trust_remote_code', False))
+        self.processor = hf_processor(local_path, trust_remote_code=config.model.get('trust_remote_code', False))
+        self.processor.tokenizer.padding_side = 'left'
 
         trust_remote_code = config.model.get('trust_remote_code', False)
         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
@@ -989,7 +1013,7 @@ class RewardModelWorker(Worker):
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
             setattr(model_config, 'classifier_dropout', 0.)
-            reward_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
+            reward_module = Qwen2_5_VLForConditionalGeneration.from_pretrained(pretrained_model_name_or_path=local_path,
                                                                             config=model_config,
                                                                             torch_dtype=torch.bfloat16,
                                                                             attn_implementation='flash_attention_2',
@@ -1025,60 +1049,41 @@ class RewardModelWorker(Worker):
         # This is used to import external_lib into the huggingface systems
         import_external_libs(self.config.model.get('external_lib', None))
         self.reward_module = self._build_model(config=self.config)
+        
+    def get_score_from_output(self, output_text):
+        scores = torch.zeros(len(output_text)*2, device=self.device_mesh.device_type)  # two images for dpo
+        for i, text in enumerate(output_text):
+            better_idx = extract_boxed_content(text)
+            try:
+                better_idx = int(better_idx)
+                scores[i*2 + better_idx] = 1.0
+            except:
+                pass
+        return scores
 
     def _forward_micro_batch(self, micro_batch):
-        from flash_attn.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
-        from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
-
         with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             input_ids = micro_batch['input_ids']
-            batch_size, seqlen = input_ids.shape
+            # batch_size, seqlen = input_ids.shape
             attention_mask = micro_batch['attention_mask']
             position_ids = micro_batch['position_ids']
-
-            if self.use_remove_padding:
-                input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
-                                                           attention_mask)  # input_ids_rmpad (total_nnz, ...)
-                input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
-
-                # unpad the position_ids to align the rotary
-                position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
-                                                      indices).transpose(0, 1)
-
-                # pad and slice the inputs if sp > 1
-                if self.ulysses_sequence_parallel_size > 1:
-                    input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
-                                                                                                position_ids_rmpad, \
-                                                                                                sp_size=self.ulysses_sequence_parallel_size)
-
-                # only pass input_ids and position_ids to enable flash_attn_varlen
-                output = self.reward_module(input_ids=input_ids_rmpad,
-                                            attention_mask=None,
-                                            position_ids=position_ids_rmpad,
-                                            use_cache=False)  # prevent model thinks we are generating
-                reward_rmpad = output.logits
-                reward_rmpad = reward_rmpad.squeeze(0)  # (total_nnz)
-
-                # gather output if sp > 1
-                if self.ulysses_sequence_parallel_size > 1:
-                    reward_rmpad = gather_outpus_and_unpad(reward_rmpad,
-                                                           gather_dim=0,
-                                                           unpad_dim=0,
-                                                           padding_size=pad_size)
-
-                # pad it back
-                rm_score = pad_input(reward_rmpad, indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)
-            else:
-                output = self.reward_module(input_ids=input_ids,
-                                            attention_mask=attention_mask,
-                                            position_ids=position_ids,
-                                            use_cache=False)
-                rm_score = output.logits  # (batch_size, seq_len, 1)
-                rm_score = rm_score.squeeze(-1)
-
-            # extract the result of the last valid token
-            eos_mask_idx = torch.argmax(position_ids * attention_mask, dim=-1)  # (bsz,)
-            rm_score = rm_score[torch.arange(batch_size), eos_mask_idx]
+            
+            generated_ids = self.reward_module.generate(
+                                        input_ids=input_ids,
+                                        attention_mask=attention_mask,
+                                        position_ids=position_ids,
+                                        pixel_values=micro_batch['pixel_values'],
+                                        image_grid_thw=micro_batch['image_grid_thw'].reshape(-1, 3),
+                                        max_new_tokens=self.config.model.max_new_tokens,
+                                        use_cache=True)
+            generated_ids_trimmed = [
+                out_ids[len(in_ids) :] for in_ids, out_ids in zip(input_ids, generated_ids)
+            ]
+            output_text = self.processor.batch_decode(
+                generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
+            )
+            print(f'output_text: {output_text}')
+            rm_score = self.get_score_from_output(output_text)
             return rm_score
 
     def _expand_to_token_level(self, data: DataProto, scores: torch.Tensor):
@@ -1097,66 +1102,100 @@ class RewardModelWorker(Worker):
         return token_level_scores
 
     def _switch_chat_template(self, data: DataProto):
-        src_max_length = data.batch['attention_mask'].shape[-1]
+        template = "Below are two images generated using the following prompt: {prompt}.\n <image> <image> \n"
+        template_postfix = r"Please carefully compare the two images and determine which one better follows the given prompt. Start by reasoning through the key elements of the prompt and how each image aligns with it. Then, provide your final answer using the format: \\boxed\{1\} or \\boxed\{2\} — only one number should be in the box."
 
-        src_tokenizer = self.input_tokenizer
-        target_tokenizer = self.tokenizer
-
-        rm_input_ids = []
-        rm_attention_mask = []
-
+        self.max_prompt_length = self.config.model.max_prompt_length
+        
+        uid_group = {}
         for i in range(data.batch.batch_size[0]):
+            uid = data.non_tensor_batch['uid'][i]
+            if uid not in uid_group:
+                uid_group[uid] = []
+            uid_group[uid].append(i)
+            
+            
+        uids = []
+        input_dict = {
+            'input_ids': [],
+            'attention_mask': [],
+            'pixel_values': [],
+            'image_grid_thw': [],
+            'position_ids': [],
+        }
+        
+        for uid in uid_group:
+            indices = uid_group[uid]
+            first_idx = indices[0]
             # extract raw prompt
-            chat: list = data.non_tensor_batch['raw_prompt'][i].tolist()
+            prompt = data.non_tensor_batch['raw_prompt'][first_idx][0]['content']
+            imgs = []
+            for idx in indices:
+                img = data.batch['gen_img'][idx]
+                imgs.append(PIL.Image.fromarray(img.cpu().numpy()))
+            chat = [{'role': 'user', 
+                     'content': [{'type': 'text', 'text': template.format(prompt=prompt) + template_postfix}],
+                    }]
+            prompt_with_chat_template = self.processor.apply_chat_template(
+                chat, tokenize=False, add_generation_prompt=True
+            )
+            uids.append(uid)
+            
+            imgs = [process_image(img) for img in imgs]
+            image_inputs = self.processor.image_processor(imgs, return_tensors='pt')
+            image_grid_thw = image_inputs['image_grid_thw']
+            for key, value in image_inputs.items():
+                input_dict[key].append(value)
 
-            # extract response
-            response_ids = data.batch['responses'][i]
-            response_length = response_ids.shape[-1]
-            valid_response_length = data.batch['attention_mask'][i][-response_length:].sum()
-            valid_response_ids = response_ids[:valid_response_length]
+            if image_grid_thw is not None:
+                merge_length = self.processor.image_processor.merge_size**2
+                index = 0
+                while '<image>' in prompt_with_chat_template:
+                    prompt_with_chat_template = prompt_with_chat_template.replace(
+                        '<image>',
+                        '<|vision_start|>' + '<|placeholder|>' * (image_grid_thw[index].prod() // merge_length) +
+                        '<|vision_end|>',
+                        1,
+                    )
+                    index += 1
 
-            # decode
-            response = src_tokenizer.decode(valid_response_ids)
-            # remove bos and eos
-            response = response.replace(src_tokenizer.eos_token, '')
+                prompt_with_chat_template = prompt_with_chat_template.replace('<|placeholder|>',
+                                                                              self.processor.image_token)
+            else:
+                raw_prompt = prompt_with_chat_template
 
-            chat.append({'role': 'assistant', 'content': response})
-
-            prompt_with_chat_template = target_tokenizer.apply_chat_template(chat,
-                                                                             add_generation_prompt=False,
-                                                                             tokenize=False)
-            if self.rank == 0 and i == 0:
-                # for debugging purpose
-                print(f'Switch template. chat: {prompt_with_chat_template}')
-
-            # the maximum length is actually determined by the reward model itself
-            max_length = self.config.get('max_length', src_max_length)
-            if max_length is None:
-                max_length = src_max_length
-            input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(
-                prompt=prompt_with_chat_template,
-                tokenizer=target_tokenizer,
-                max_length=max_length,
-                pad_token_id=target_tokenizer.pad_token_id,
-                left_pad=False,  # right padding
-                truncation=self.config.get('truncation', 'right'))  # truncate from the right
-
-            rm_input_ids.append(input_ids)
-            rm_attention_mask.append(attention_mask)
-
-        rm_input_ids = torch.cat(rm_input_ids, dim=0)
-        rm_attention_mask = torch.cat(rm_attention_mask, dim=0)
-
-        rm_position_ids = compute_position_id_with_mask(rm_attention_mask)
-
-        rm_inputs = {'input_ids': rm_input_ids, 'attention_mask': rm_attention_mask, 'position_ids': rm_position_ids}
-
-        return DataProto.from_dict(rm_inputs)
+            input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(prompt=prompt_with_chat_template,
+                                                                            tokenizer=self.tokenizer,
+                                                                            max_length=self.max_prompt_length,
+                                                                            pad_token_id=self.tokenizer.pad_token_id,
+                                                                            left_pad=True,
+                                                                            truncation='right')
+            input_dict['input_ids'].append(input_ids[0])
+            input_dict['attention_mask'].append(attention_mask[0])
+            
+            from verl.models.transformers.qwen2_vl import get_rope_index
+            input_dict['position_ids'].append(
+                get_rope_index(
+                    self.processor,
+                    input_ids=input_ids[0],
+                    image_grid_thw=image_grid_thw,
+                    attention_mask=attention_mask[0],
+                )
+            )
+            
+        for key in input_dict:
+            input_dict[key] = torch.stack(input_dict[key], dim=0)
+        
+        
+        return DataProto.from_dict(input_dict, non_tensors={'uid': uids})
+                
 
     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
     def compute_rm_score(self, data: DataProto):
         import itertools
         from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
+        
+        load_fsdp_model_to_gpu(self.reward_module)
         # Support all hardwares
         data = data.to(torch.cuda.current_device())
         if self._do_switch_chat_template:
@@ -1195,7 +1234,285 @@ class RewardModelWorker(Worker):
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
-        self.reward_module._handle.reshard(True)
+        # self.reward_module._handle.reshard(True)
+        offload_fsdp_model_to_cpu(self.reward_module)
 
         output = output.to('cpu')
         return output
+
+
+# TODO(sgm): we may need to extract it to dp_reward_model.py
+# class RewardModelWorker(Worker):
+#     """
+#     Note that we only implement the reward model that is subclass of AutoModelForTokenClassification.
+#     """
+
+#     def __init__(self, config):
+#         super().__init__()
+#         import torch.distributed
+#         if not torch.distributed.is_initialized():
+#             torch.distributed.init_process_group(backend="nccl")
+#         self.config = config
+
+#         # build device mesh for Ulysses Sequence Parallel
+#         world_size = torch.distributed.get_world_size()
+#         from torch.distributed.device_mesh import init_device_mesh
+
+#         fsdp_size = self.config.model.fsdp_config.fsdp_size
+#         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
+
+#         self.ulysses_device_mesh = None
+#         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
+#         dp = world_size // self.ulysses_sequence_parallel_size
+#         if self.ulysses_sequence_parallel_size > 1:
+#             self.ulysses_device_mesh = init_device_mesh('cuda',
+#                                                         mesh_shape=(dp, self.ulysses_sequence_parallel_size),
+#                                                         mesh_dim_names=['dp', 'sp'])
+
+#         self.ulysses_sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
+
+#         self.use_remove_padding = self.config.model.get('use_remove_padding', False)
+
+#         # normalize config
+#         if self.config.micro_batch_size is not None:
+#             self.config.micro_batch_size //= torch.distributed.get_world_size()
+#             self.config.micro_batch_size_per_gpu = self.config.micro_batch_size
+
+#     def _build_model(self, config):
+#         # the following line is necessary
+#         from transformers import AutoModelForTokenClassification, AutoConfig
+#         from torch.distributed.fsdp import FullyShardedDataParallel as FSDP, ShardingStrategy, CPUOffload
+
+#         # download the checkpoint from hdfs
+#         local_path = copy_to_local(config.model.path)
+
+#         if self.config.model.input_tokenizer is None:
+#             self._do_switch_chat_template = False
+#         else:
+#             self._do_switch_chat_template = True
+#             input_tokenizer_local_path = copy_to_local(config.model.input_tokenizer)
+#             self.input_tokenizer = hf_tokenizer(input_tokenizer_local_path,
+#                                                 trust_remote_code=config.model.get('trust_remote_code', False))
+#             self.tokenizer = hf_tokenizer(local_path, trust_remote_code=config.model.get('trust_remote_code', False))
+
+#         trust_remote_code = config.model.get('trust_remote_code', False)
+#         model_config = AutoConfig.from_pretrained(local_path, trust_remote_code=trust_remote_code)
+#         model_config.num_labels = 1
+
+#         # note that we have to create model in fp32. Otherwise, the optimizer is in bf16, which is incorrect
+#         init_context = get_init_weight_context_manager(use_meta_tensor=not model_config.tie_word_embeddings,
+#                                                        mesh=self.device_mesh)
+
+#         with init_context(), warnings.catch_warnings():
+#             warnings.simplefilter("ignore")
+#             setattr(model_config, 'classifier_dropout', 0.)
+#             reward_module = AutoModelForTokenClassification.from_pretrained(pretrained_model_name_or_path=local_path,
+#                                                                             config=model_config,
+#                                                                             torch_dtype=torch.bfloat16,
+#                                                                             attn_implementation='flash_attention_2',
+#                                                                             trust_remote_code=trust_remote_code)
+
+#             if config.model.get('use_remove_padding', False) or self.ulysses_sequence_parallel_size > 1:
+#                 from verl.models.transformers.monkey_patch import apply_monkey_patch
+#                 apply_monkey_patch(model=reward_module)
+
+#             reward_module.to(torch.bfloat16)
+
+#         auto_wrap_policy = get_fsdp_wrap_policy(module=reward_module, config=self.config.model.fsdp_config)
+
+#         fsdp_mesh = self.device_mesh
+#         sharding_strategy = get_sharding_strategy(fsdp_mesh)
+
+#         reward_module = FSDP(
+#             reward_module,
+#             param_init_fn=init_fn,
+#             use_orig_params=False,
+#             auto_wrap_policy=auto_wrap_policy,
+#             device_id=torch.cuda.current_device(),
+#             sharding_strategy=sharding_strategy,  # zero3
+#             sync_module_states=True,
+#             cpu_offload=CPUOffload(offload_params=True),
+#             forward_prefetch=False,
+#             device_mesh=self.device_mesh)
+
+#         return reward_module
+
+#     @register(dispatch_mode=Dispatch.ONE_TO_ALL)
+#     def init_model(self):
+#         # This is used to import external_lib into the huggingface systems
+#         import_external_libs(self.config.model.get('external_lib', None))
+#         self.reward_module = self._build_model(config=self.config)
+
+#     def _forward_micro_batch(self, micro_batch):
+#         from flash_attn.bert_padding import pad_input, unpad_input, index_first_axis, rearrange
+#         from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
+
+#         with torch.no_grad(), torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+#             input_ids = micro_batch['input_ids']
+#             batch_size, seqlen = input_ids.shape
+#             attention_mask = micro_batch['attention_mask']
+#             position_ids = micro_batch['position_ids']
+
+#             if self.use_remove_padding:
+#                 input_ids_rmpad, indices, *_ = unpad_input(input_ids.unsqueeze(-1),
+#                                                            attention_mask)  # input_ids_rmpad (total_nnz, ...)
+#                 input_ids_rmpad = input_ids_rmpad.transpose(0, 1)  # (1, total_nnz)
+
+#                 # unpad the position_ids to align the rotary
+#                 position_ids_rmpad = index_first_axis(rearrange(position_ids.unsqueeze(-1), "b s ... -> (b s) ..."),
+#                                                       indices).transpose(0, 1)
+
+#                 # pad and slice the inputs if sp > 1
+#                 if self.ulysses_sequence_parallel_size > 1:
+#                     input_ids_rmpad, position_ids_rmpad, pad_size = ulysses_pad_and_slice_inputs(input_ids_rmpad, \
+#                                                                                                 position_ids_rmpad, \
+#                                                                                                 sp_size=self.ulysses_sequence_parallel_size)
+
+#                 # only pass input_ids and position_ids to enable flash_attn_varlen
+#                 output = self.reward_module(input_ids=input_ids_rmpad,
+#                                             attention_mask=None,
+#                                             position_ids=position_ids_rmpad,
+#                                             use_cache=False)  # prevent model thinks we are generating
+#                 reward_rmpad = output.logits
+#                 reward_rmpad = reward_rmpad.squeeze(0)  # (total_nnz)
+
+#                 # gather output if sp > 1
+#                 if self.ulysses_sequence_parallel_size > 1:
+#                     reward_rmpad = gather_outpus_and_unpad(reward_rmpad,
+#                                                            gather_dim=0,
+#                                                            unpad_dim=0,
+#                                                            padding_size=pad_size)
+
+#                 # pad it back
+#                 rm_score = pad_input(reward_rmpad, indices=indices, batch=batch_size, seqlen=seqlen).squeeze(-1)
+#             else:
+#                 output = self.reward_module(input_ids=input_ids,
+#                                             attention_mask=attention_mask,
+#                                             position_ids=position_ids,
+#                                             use_cache=False)
+#                 rm_score = output.logits  # (batch_size, seq_len, 1)
+#                 rm_score = rm_score.squeeze(-1)
+
+#             # extract the result of the last valid token
+#             eos_mask_idx = torch.argmax(position_ids * attention_mask, dim=-1)  # (bsz,)
+#             rm_score = rm_score[torch.arange(batch_size), eos_mask_idx]
+#             return rm_score
+
+#     def _expand_to_token_level(self, data: DataProto, scores: torch.Tensor):
+#         batch_size = data.batch.batch_size[0]
+#         # expand as token_level_reward
+#         attention_mask = data.batch['attention_mask']
+#         position_ids = data.batch['position_ids']
+#         response_length = data.batch['responses'].shape[-1]
+#         eos_mask_idx = torch.argmax(position_ids * attention_mask, dim=-1)  # (bsz,)
+#         token_level_scores = torch.zeros_like(attention_mask, dtype=scores.dtype)  # (bsz, seqlen)
+#         token_level_scores[torch.arange(batch_size), eos_mask_idx] = scores
+
+#         # select the response part
+#         token_level_scores = token_level_scores[:, -response_length:]
+
+#         return token_level_scores
+
+#     def _switch_chat_template(self, data: DataProto):
+#         src_max_length = data.batch['attention_mask'].shape[-1]
+
+#         src_tokenizer = self.input_tokenizer
+#         target_tokenizer = self.tokenizer
+
+#         rm_input_ids = []
+#         rm_attention_mask = []
+
+#         for i in range(data.batch.batch_size[0]):
+#             # extract raw prompt
+#             chat: list = data.non_tensor_batch['raw_prompt'][i].tolist()
+
+#             # extract response
+#             response_ids = data.batch['responses'][i]
+#             response_length = response_ids.shape[-1]
+#             valid_response_length = data.batch['attention_mask'][i][-response_length:].sum()
+#             valid_response_ids = response_ids[:valid_response_length]
+
+#             # decode
+#             response = src_tokenizer.decode(valid_response_ids)
+#             # remove bos and eos
+#             response = response.replace(src_tokenizer.eos_token, '')
+
+#             chat.append({'role': 'assistant', 'content': response})
+
+#             prompt_with_chat_template = target_tokenizer.apply_chat_template(chat,
+#                                                                              add_generation_prompt=False,
+#                                                                              tokenize=False)
+#             if self.rank == 0 and i == 0:
+#                 # for debugging purpose
+#                 print(f'Switch template. chat: {prompt_with_chat_template}')
+
+#             # the maximum length is actually determined by the reward model itself
+#             max_length = self.config.get('max_length', src_max_length)
+#             if max_length is None:
+#                 max_length = src_max_length
+#             input_ids, attention_mask = verl_F.tokenize_and_postprocess_data(
+#                 prompt=prompt_with_chat_template,
+#                 tokenizer=target_tokenizer,
+#                 max_length=max_length,
+#                 pad_token_id=target_tokenizer.pad_token_id,
+#                 left_pad=False,  # right padding
+#                 truncation=self.config.get('truncation', 'right'))  # truncate from the right
+
+#             rm_input_ids.append(input_ids)
+#             rm_attention_mask.append(attention_mask)
+
+#         rm_input_ids = torch.cat(rm_input_ids, dim=0)
+#         rm_attention_mask = torch.cat(rm_attention_mask, dim=0)
+
+#         rm_position_ids = compute_position_id_with_mask(rm_attention_mask)
+
+#         rm_inputs = {'input_ids': rm_input_ids, 'attention_mask': rm_attention_mask, 'position_ids': rm_position_ids}
+
+#         return DataProto.from_dict(rm_inputs)
+
+#     @register(dispatch_mode=Dispatch.DP_COMPUTE_PROTO)
+#     def compute_rm_score(self, data: DataProto):
+#         import itertools
+#         from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
+#         # Support all hardwares
+#         data = data.to(torch.cuda.current_device())
+#         if self._do_switch_chat_template:
+#             rm_data = self._switch_chat_template(data)
+
+#         # Support all hardwares
+#         rm_data.batch = rm_data.batch.to(torch.cuda.current_device())
+
+#         # perform forward computation
+#         with self.ulysses_sharding_manager:
+#             rm_data = self.ulysses_sharding_manager.preprocess_data(data=rm_data)
+#             data = self.ulysses_sharding_manager.preprocess_data(data=data)
+
+#             use_dynamic_bsz = self.config.use_dynamic_bsz
+#             if use_dynamic_bsz:
+#                 max_token_len = self.config.forward_max_token_len_per_gpu * self.ulysses_sequence_parallel_size
+#                 micro_batches, indices = rearrange_micro_batches(batch=rm_data.batch, max_token_len=max_token_len)
+#             else:
+#                 micro_batches = rm_data.batch.split(self.config.micro_batch_size_per_gpu)
+#             output = []
+#             for micro_batch in micro_batches:
+#                 rm_score = self._forward_micro_batch(micro_batch)
+#                 output.append(rm_score)
+#             scores = torch.cat(output, dim=0)  # (batch_size)
+
+#             if use_dynamic_bsz:
+#                 indices = list(itertools.chain.from_iterable(indices))
+#                 assert len(indices) == scores.size(0), f"{len(indices)} vs. {scores.size()}"
+#                 revert_indices = torch.tensor(get_reverse_idx(indices), dtype=torch.long)
+#                 scores = scores[revert_indices]
+
+#             token_level_scores = self._expand_to_token_level(data, scores)
+#             # Note that this is only the scores, may not be the final rewards used to train RL
+#             output = DataProto.from_dict(tensors={'rm_scores': token_level_scores})
+#             output = self.ulysses_sharding_manager.postprocess_data(data=output)
+
+#         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
+#         # unshard the root FSDP module
+#         self.reward_module._handle.reshard(True)
+
+#         output = output.to('cpu')
+#         return output
