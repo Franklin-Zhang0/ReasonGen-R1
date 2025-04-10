@@ -20,3 +20,4 @@ transformers
 wandb
 pillow
 vllm
+mathruler
