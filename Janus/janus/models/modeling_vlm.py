@@ -467,7 +467,8 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             logit_cond = img_logits[0::2, :]
             logit_uncond = img_logits[1::2, :]
             if detach_uncond:
-                img_logits = logit_uncond.detach() + cfg_weight * (logit_cond-logit_uncond.detach())
+                logit_uncond = logit_uncond.detach()
+                img_logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
             else:
                 img_logits = logit_uncond + cfg_weight * (logit_cond-logit_uncond)
             text_logits = text_logits[0::2]

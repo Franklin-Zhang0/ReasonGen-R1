@@ -58,6 +58,10 @@ actor_rollout_ref:
       param_offload: False
       optimizer_offload: False
       fsdp_size: -1
+      mixed_precision:
+        param_dtype: bf16
+        reduce_dtype: bf16
+        buffer_dtype: bf16
   ref:
     fsdp_config:
       param_offload: False
