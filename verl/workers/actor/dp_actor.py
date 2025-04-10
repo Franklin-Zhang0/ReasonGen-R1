@@ -153,6 +153,9 @@ class DataParallelPPOActor(BasePPOActor):
                                            input_img_mask=micro_batch['seq_img_mask'],
                                            attention_mask=attention_mask,
                                            position_ids=position_ids,
+                                           bos_token_id=self.config.bos_token_id,
+                                           pad_token_id=self.config.pad_token_id,
+                                           image_start_token_id=self.config.image_start_token_id,
                                            cfg_weight = self.cfg_weight,
                                            detach_uncond = self.detach_uncond,
                                            use_cache=False)  # prevent model thinks we are generating

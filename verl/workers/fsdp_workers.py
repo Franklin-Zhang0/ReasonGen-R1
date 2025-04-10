@@ -433,6 +433,10 @@ class ActorRolloutRefWorker(Worker):
                 self.config.actor.use_remove_padding = use_remove_padding
                 self.config.actor.cfg_weight = cfg_weight
                 self.config.actor.detach_uncond = detach_uncond
+                self.config.actor.bos_token_id = self.tokenizer.bos_token_id
+                self.config.actor.pad_token_id = self.tokenizer.pad_token_id
+                self.config.actor.image_start_token_id = self.tokenizer.encode(self.processor.image_start_tag)[-1]
+                
             self.actor = DataParallelPPOActor(config=self.config.actor,
                                               actor_module=self.actor_module_fsdp,
                                               actor_optimizer=self.actor_optimizer)
@@ -455,6 +459,10 @@ class ActorRolloutRefWorker(Worker):
                 self.config.ref.use_remove_padding = use_remove_padding
                 self.config.ref.cfg_weight = cfg_weight
                 self.config.ref.detach_uncond = detach_uncond
+                self.config.ref.bos_token_id = self.tokenizer.bos_token_id
+                self.config.ref.pad_token_id = self.tokenizer.pad_token_id
+                self.config.ref.image_start_token_id = self.tokenizer.encode(self.processor.image_start_tag)[-1]
+                
             self.ref_policy = DataParallelPPOActor(config=self.config.ref, actor_module=self.ref_module_fsdp)
 
         if self._is_actor:
@@ -533,7 +541,7 @@ class ActorRolloutRefWorker(Worker):
         with self.rollout_sharding_manager:
 
             # after parameters sync with rollout, offload actor model to CPU
-            if self._is_offload_param:
+            if self._is_offload_param and self.config.rollout.name=='vllm':
                 offload_fsdp_model_to_cpu(self.actor_module_fsdp)
             if self._is_offload_optimizer:
                 offload_fsdp_optimizer(optimizer=self.actor_optimizer)
@@ -1277,7 +1285,7 @@ class RewardModelWorker(Worker):
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
         # unshard the root FSDP module
-        # self.reward_module._handle.reshard(True)
+        self.reward_module._handle.reshard(True)
         offload_fsdp_model_to_cpu(self.reward_module)
 
         output = output.to('cpu')

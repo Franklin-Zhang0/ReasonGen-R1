@@ -186,8 +186,7 @@ reward_model:
     tensor_model_parallel_size: 1
     max_num_batched_tokens: 8192
     max_model_len: null
-    max_num_seqs: 1024
-    micro_batch_size: 16
+    max_num_seqs: 128
     log_prob_micro_batch_size: null # will be deprecated, use log_prob_micro_batch_size_per_gpu
     log_prob_micro_batch_size_per_gpu: null
     log_prob_use_dynamic_bsz: ${actor_rollout_ref.actor.use_dynamic_bsz}
@@ -211,7 +210,7 @@ custom_reward_function:
   name: compute_score
 
 img_saving:
-  path: /home/v-zhangyu3/project/Image-RL/generated_samples
+  path: /home/aiscuser/project/Image-RL/generated_samples
   num: 8
   save_freq: 10
 
@@ -226,7 +225,7 @@ algorithm:
     kl_coef: 0.001
 
 trainer:
-  balance_batch: True
+  balance_batch: False
   total_epochs: 30
   total_training_steps: null
   project_name: verl_examples
