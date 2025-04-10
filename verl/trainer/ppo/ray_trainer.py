@@ -222,6 +222,7 @@ def compute_advantage(data: DataProto, adv_estimator, gamma=1.0, lam=1.0, num_re
     elif adv_estimator == AdvantageEstimator.DPO:
         advantages, returns = core_algos.compute_dpo_outcome_advantage(
             token_level_rewards=data.batch['token_level_rewards'],
+            eos_mask=data.batch['response_mask'],
             beta=beta)
         data.batch['advantages'] = advantages
         data.batch['returns'] = returns

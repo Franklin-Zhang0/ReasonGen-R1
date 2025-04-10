@@ -263,10 +263,13 @@ def compute_remax_outcome_advantage(token_level_rewards: torch.Tensor, reward_ba
 
     return advantages, returns
 
-def compute_dpo_outcome_advantage(token_level_rewards: torch.Tensor, beta: float):
-    token_level_rewards *= beta
+def compute_dpo_outcome_advantage(token_level_rewards: torch.Tensor, eos_mask:torch.Tensor, beta: float):
+    response_length = token_level_rewards.shape[-1]
+    scores = token_level_rewards.sum(dim=-1)
+    scores *= beta
+    scores = scores.unsqueeze(-1).tile([1, response_length]) * eos_mask
     
-    return token_level_rewards, token_level_rewards
+    return scores, scores
 
 
 def compute_rewards(token_level_scores, old_log_prob, ref_log_prob, kl_ratio):
