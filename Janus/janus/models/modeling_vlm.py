@@ -312,7 +312,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                     tokens[i, :-1] = pad_token_id
                     tokens[i, last_pad_idx[i//2]] = sentence_start_token_id
                 assert attention_mask[i//2, last_pad_idx[i//2]] == 1, f"attention mask should be 1 at the sentence start token"
-            attention_mask = attention_mask.repeat(2, 1)
+            attention_mask = attention_mask.repeat_interleave(2, dim=0)
                 
         inputs_embeds = self.language_model.get_input_embeddings()(tokens)
                 
