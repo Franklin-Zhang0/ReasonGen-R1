@@ -227,6 +227,10 @@ algorithm:
   kl_ctrl:
     type: fixed
     kl_coef: 0.001
+  filter_groups:
+    enable: False
+    max_num_gen_batches: 4
+    metric: seq_final_reward
 
 trainer:
   balance_batch: False

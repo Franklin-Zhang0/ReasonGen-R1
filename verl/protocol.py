@@ -281,6 +281,8 @@ class DataProto:
                 tensors[key] = val
             elif isinstance(val, np.ndarray):
                 non_tensors[key] = val
+            elif isinstance(val, list):
+                non_tensors[key] = np.array(val, dtype=object)
             else:
                 raise ValueError(f'Unsupported type in data {type(val)}')
 
@@ -593,6 +595,31 @@ class DataProto:
         return DataProto(
             batch=repeated_batch,
             non_tensor_batch=repeated_non_tensor_batch,
+            meta_info=self.meta_info,
+        )
+    
+    def apply_mask(self, mask: torch.Tensor):
+        if self.batch is not None:
+            masked_tensor = {
+                key: tensor[mask] for key, tensor in self.batch.items()
+            }
+            masked_batch = TensorDict(
+                source=masked_tensor,
+                batch_size=(sum(mask),),
+            )
+        else:
+            masked_batch = None
+        
+        masked_non_tensor_batch = {}
+        for key, value in self.non_tensor_batch.items():
+            if isinstance(value, np.ndarray):
+                masked_non_tensor_batch[key] = value[mask]
+            else:
+                masked_non_tensor_batch[key] = [value[i] for i in range(len(mask)) if mask[i]]
+                
+        return self.from_dict(
+            tensors=masked_batch,
+            non_tensors=masked_non_tensor_batch,
             meta_info=self.meta_info,
         )
 

@@ -1083,9 +1083,11 @@ class RewardModelWorker(Worker):
         for i, text in enumerate(output_text):
             better_idx = extract_boxed_content(text)
             try:
-                assert better_idx in ['1', '2'], f'Invalid output text: {text}'
-                better_idx = int(better_idx) - 1 # idx start from 1 in the text, -1 to make it start from 0
-                scores[i*2 + better_idx] = 1.0
+                if better_idx in ['1', '2']:
+                    better_idx = int(better_idx) - 1 # idx start from 1 in the text, minus 1 to make it start from 0
+                    scores[i*2 + better_idx] = 1.0
+                else:
+                    pass
             except:
                 pass
         return scores
@@ -1139,7 +1141,7 @@ class RewardModelWorker(Worker):
 
     def _switch_chat_template(self, data: DataProto):
         template = "Below are two images generated using the following prompt: {prompt}.\n <image> <image> \n"
-        template_postfix = r"Please carefully compare the two images and determine which one better follows the given prompt. Start by reasoning through the key elements of the prompt and how each image aligns with it. Then, provide your final answer using the format: \\boxed\{1\} or \\boxed\{2\} — only one number should be in the box."
+        template_postfix = r"Carefully examine the two images and determine which one better aligns with the given textual prompt. Begin by identifying the key elements described in the text and analyzing how each image corresponds to those elements. After your reasoning, provide your final judgment in the format: \boxed{1} or \boxed{2} — choose the image that best matches the prompt. If neither image is recognizable or relevant to the prompt, respond with \boxed{-1}. Only one number should appear in the box."
 
         self.max_prompt_length = self.config.model.max_prompt_length
         

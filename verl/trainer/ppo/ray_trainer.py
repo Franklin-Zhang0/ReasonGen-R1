@@ -45,6 +45,7 @@ from torch.utils.data import RandomSampler, SequentialSampler
 from torchdata.stateful_dataloader import StatefulDataLoader
 import PIL
 import wandb
+from collections import defaultdict
 
 WorkerType = Type[Worker]
 
@@ -810,6 +811,9 @@ class RayPPOTrainer(object):
         last_val_metrics = None
 
         for epoch in range(self.config.trainer.total_epochs):
+            old_batch = batch = None
+            num_prompt_in_batch = 0
+            num_gen_batches = 0
             for batch_dict in self.train_dataloader:
                 metrics = {}
                 timing_raw = {}
@@ -867,17 +871,6 @@ class RayPPOTrainer(object):
                     # compute global_valid tokens
                     batch.meta_info['global_token_num'] = torch.sum(batch.batch['attention_mask'], dim=-1).tolist()
 
-                    # recompute old_log_probs
-                    with _timer('old_log_prob', timing_raw):
-                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
-                        batch = batch.union(old_log_prob)
-
-                    if self.use_reference_policy:
-                        # compute reference log_prob
-                        with _timer('ref', timing_raw):
-                            ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
-                            batch = batch.union(ref_log_prob)
-
                     # compute values
                     if self.use_critic:
                         with _timer('values', timing_raw):
@@ -905,6 +898,69 @@ class RayPPOTrainer(object):
                             metrics.update(kl_metrics)
                         else:
                             batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
+                            
+                        if not self.config.algorithm.filter_groups.enable:
+                            old_batch = batch
+                        else:  # NOTE: When prompts after filtering is less than train batch size, we skip to the next generation batch
+                            metric_name = self.config.algorithm.filter_groups.metric
+                            if metric_name == "seq_final_reward":
+                                # Turn to numpy for easier filtering
+                                batch.non_tensor_batch["seq_final_reward"] = batch.batch['token_level_scores'].sum(
+                                    dim=-1).numpy()
+                            elif metric_name == "seq_reward":
+                                batch.non_tensor_batch["seq_reward"] = batch.batch['token_level_scores'].sum(
+                                    dim=-1).numpy()
+
+                            # Collect the sequence reward for each trajectory
+                            prompt_uid2metric_vals = defaultdict(list)
+                            for uid, metric_val in zip(batch.non_tensor_batch['uid'],
+                                                    batch.non_tensor_batch[metric_name]):
+                                prompt_uid2metric_vals[uid].append(metric_val)
+
+                            prompt_uid2metric_std = {}
+                            for prompt_uid, metric_vals in prompt_uid2metric_vals.items():
+                                prompt_uid2metric_std[prompt_uid] = np.std(metric_vals)
+
+                            kept_prompt_uids = [
+                                uid for uid, std in prompt_uid2metric_std.items()
+                                if std > 0 or len(prompt_uid2metric_vals[uid]) == 1
+                            ]
+                            num_prompt_in_batch += len(kept_prompt_uids)
+
+                            kept_traj_idxs = []
+                            mask = torch.zeros(len(batch), dtype=torch.bool)
+                            for idx, traj_from_prompt_uid in enumerate(batch.non_tensor_batch['uid']):
+                                if traj_from_prompt_uid in kept_prompt_uids:
+                                    kept_traj_idxs.append(idx)
+                                    mask[idx] = True
+                                    
+
+                            # batch = batch[kept_traj_idxs]
+                            batch = batch.apply_mask(mask)
+                            if old_batch is None:
+                                old_batch = batch
+                            else:
+                                old_batch = DataProto.concat([old_batch, batch])
+
+                            prompt_bsz = self.config.data.train_batch_size
+                            if num_prompt_in_batch < prompt_bsz:
+                                print(f'{num_prompt_in_batch=} < {prompt_bsz=}')
+                                max_num_gen_batches = self.config.algorithm.filter_groups.max_num_gen_batches
+                                if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
+                                    print(f'{num_gen_batches=}. Keep generating...')
+                                    continue
+                                else:
+                                    raise ValueError(
+                                        f'{num_gen_batches=} >= {max_num_gen_batches=}. Generated too many. Please check your data.'
+                                    )
+                            else:
+                                # Align the batch
+                                traj_bsz = self.config.data.train_batch_size * self.config.actor_rollout_ref.rollout.n
+                                mask = torch.zeros(len(old_batch), dtype=torch.bool)
+                                mask[:traj_bsz] = True
+                                # old_batch = old_batch[:traj_bsz]
+                                old_batch = old_batch.apply_mask(mask)
+                                batch = old_batch
 
                         # compute advantages, executed on the driver process
                         batch = compute_advantage(batch,
@@ -913,6 +969,17 @@ class RayPPOTrainer(object):
                                                   lam=self.config.algorithm.lam,
                                                   beta=self.config.algorithm.beta,
                                                   num_repeat=self.config.actor_rollout_ref.rollout.n)
+                    
+                    # recompute old_log_probs
+                    with _timer('old_log_prob', timing_raw):
+                        old_log_prob = self.actor_rollout_wg.compute_log_prob(batch)
+                        batch = batch.union(old_log_prob)
+
+                    if self.use_reference_policy:
+                        # compute reference log_prob
+                        with _timer('ref', timing_raw):
+                            ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
+                            batch = batch.union(ref_log_prob)
 
                     # update critic
                     if self.use_critic:
@@ -949,6 +1016,10 @@ class RayPPOTrainer(object):
                 # TODO: implement actual tflpo and theoretical tflpo
                 n_gpus = self.resource_pool_manager.get_n_gpus()
                 metrics.update(compute_throughout_metrics(batch=batch, timing_raw=timing_raw, n_gpus=n_gpus))
+                
+                old_batch = batch = None
+                num_prompt_in_batch = 0
+                num_gen_batches = 0
 
                 # TODO: make a canonical logger that supports various backend
                 logger.log(data=metrics, step=self.global_steps)

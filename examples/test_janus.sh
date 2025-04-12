@@ -16,12 +16,12 @@ python3 -m verl.trainer.image_generation_rl \
     data.train_files=/blob/franklin/datasets/Janus_RL/gen_eval/prompts.txt \
     data.system_prompt="$SYSTEM_PROMPT" \
     data.train_batch_size=32 \
-    data.max_prompt_length=512 \
+    data.max_prompt_length=128 \
     data.max_response_length=600 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
     actor_rollout_ref.model.path=$MODEL_PATH \
-    actor_rollout_ref.actor.optim.lr=1e-5 \
+    actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
     actor_rollout_ref.actor.ppo_mini_batch_size=16 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=2 \
@@ -43,6 +43,7 @@ python3 -m verl.trainer.image_generation_rl \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     algorithm.kl_ctrl.kl_coef=0.001 \
+    algorithm.filter_groups.enable=True \
     trainer.critic_warmup=0 \
     trainer.logger=['console'] \
     trainer.project_name='verl_janus_test' \
