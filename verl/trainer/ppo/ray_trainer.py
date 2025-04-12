@@ -516,8 +516,8 @@ class RayPPOTrainer(object):
                                            interleave=True)
 
             # we only do validation on rule-based rm
-            if self.config.reward_model.enable:
-                return {}
+            # if self.config.reward_model.enable:
+            #     return {}
 
             # Store original inputs
             input_ids = test_batch.batch['input_ids']
@@ -889,15 +889,6 @@ class RayPPOTrainer(object):
                         # we combine with rule-based rm
                         reward_tensor = self.reward_fn(batch)
                         batch.batch['token_level_scores'] = reward_tensor
-
-                        # compute rewards. apply_kl_penalty if available
-                        if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
-                            batch, kl_metrics = apply_kl_penalty(batch,
-                                                                 kl_ctrl=self.kl_ctrl,
-                                                                 kl_penalty=self.config.algorithm.kl_penalty)
-                            metrics.update(kl_metrics)
-                        else:
-                            batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
                             
                         if not self.config.algorithm.filter_groups.enable:
                             old_batch = batch
@@ -962,13 +953,6 @@ class RayPPOTrainer(object):
                                 old_batch = old_batch.apply_mask(mask)
                                 batch = old_batch
 
-                        # compute advantages, executed on the driver process
-                        batch = compute_advantage(batch,
-                                                  adv_estimator=self.config.algorithm.adv_estimator,
-                                                  gamma=self.config.algorithm.gamma,
-                                                  lam=self.config.algorithm.lam,
-                                                  beta=self.config.algorithm.beta,
-                                                  num_repeat=self.config.actor_rollout_ref.rollout.n)
                     
                     # recompute old_log_probs
                     with _timer('old_log_prob', timing_raw):
@@ -980,6 +964,23 @@ class RayPPOTrainer(object):
                         with _timer('ref', timing_raw):
                             ref_log_prob = self.ref_policy_wg.compute_ref_log_prob(batch)
                             batch = batch.union(ref_log_prob)
+                            
+                    # compute rewards. apply_kl_penalty if available
+                    if not self.config.actor_rollout_ref.actor.get('use_kl_loss', False):
+                        batch, kl_metrics = apply_kl_penalty(batch,
+                                                                kl_ctrl=self.kl_ctrl,
+                                                                kl_penalty=self.config.algorithm.kl_penalty)
+                        metrics.update(kl_metrics)
+                    else:
+                        batch.batch['token_level_rewards'] = batch.batch['token_level_scores']
+                        
+                    # compute advantages, executed on the driver process
+                    batch = compute_advantage(batch,
+                                                adv_estimator=self.config.algorithm.adv_estimator,
+                                                gamma=self.config.algorithm.gamma,
+                                                lam=self.config.algorithm.lam,
+                                                beta=self.config.algorithm.beta,
+                                                num_repeat=self.config.actor_rollout_ref.rollout.n)
 
                     # update critic
                     if self.use_critic:
