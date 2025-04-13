@@ -33,7 +33,7 @@ class ImageGenerationRewardManager:
         self.save_num = img_saving_args.num
         self.save_path = img_saving_args.path
         time_stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        self.save_path = os.path.join(self.save_path, time_stamp)
+        self.save_path = os.path.join(self.save_path, f"{img_saving_args.experiment_name}_{time_stamp}")
         self.eval = eval
         if eval:
             self.save_path = os.path.join(self.save_path, "eval")

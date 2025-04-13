@@ -19,6 +19,7 @@ from verl.trainer.ppo.ray_trainer import RayPPOTrainer
 import os
 import ray
 import hydra
+from omegaconf import DictConfig, open_dict
 
 
 def get_custom_reward_fn(config):
@@ -160,6 +161,8 @@ class TaskRunner:
             raise NotImplementedError
 
         compute_score = get_custom_reward_fn(config)
+        with open_dict(config.img_saving):
+            config.img_saving.experiment_name = config.trainer.experiment_name
         reward_fn = reward_manager_cls(tokenizer=tokenizer, num_examine=0, compute_score=compute_score, img_saving_args=config.img_saving, eval=False)
 
         # Note that we always use function-based RM for validation
