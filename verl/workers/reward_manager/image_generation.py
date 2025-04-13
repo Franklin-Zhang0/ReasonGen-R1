@@ -34,6 +34,7 @@ class ImageGenerationRewardManager:
         self.save_path = img_saving_args.path
         time_stamp = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.save_path = os.path.join(self.save_path, time_stamp)
+        self.eval = eval
         if eval:
             self.save_path = os.path.join(self.save_path, "eval")
         else:
@@ -59,7 +60,8 @@ class ImageGenerationRewardManager:
         # save generated images
         if self.steps % self.save_freq == 0:
             self.save_img(data)
-        self.steps += 1
+        if not self.eval:
+            self.steps += 1
             
         print("Images saved to 'generated_samples' folder")
         

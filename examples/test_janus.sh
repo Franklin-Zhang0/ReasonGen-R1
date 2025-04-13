@@ -15,8 +15,8 @@ export HYDRA_FULL_ERROR=1
 if [ "$RANK" -eq 0 ]; then
 python3 -m verl.trainer.image_generation_rl \
     algorithm.adv_estimator=dpo \
-    data.train_files=/blob/franklin/datasets/Janus_RL/gen_eval/prompts.txt \
-    data.val_files=/blob/franklin/datasets/Janus_RL/gen_eval/prompts.txt \
+    data.train_files=/blob/franklin/datasets/Janus_RL/geneval/prompts/generation_prompts.txt \
+    data.val_files=/blob/franklin/datasets/Janus_RL/geneval/prompts/generation_prompts.txt \
     data.system_prompt="$SYSTEM_PROMPT" \
     data.train_batch_size=16 \
     data.max_prompt_length=128 \

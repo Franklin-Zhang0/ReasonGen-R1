@@ -1141,7 +1141,8 @@ class RewardModelWorker(Worker):
 
     def _switch_chat_template(self, data: DataProto):
         template = "Below are two images generated using the following prompt: {prompt}.\n <image> <image> \n"
-        template_postfix = r"Carefully examine the two images and determine which one better aligns with the given textual prompt. Begin by identifying the key elements described in the text and analyzing how each image corresponds to those elements. After your reasoning, provide your final judgment in the format: \boxed{1} or \boxed{2} — choose the image that best matches the prompt. If neither image is recognizable or relevant to the prompt, respond with \boxed{-1}. Only one number should appear in the box."
+        template_postfix = r"Carefully examine the two images and determine which one better aligns with the given textual prompt. Begin by identifying the key elements described in the text and analyzing how each image corresponds to those elements. \
+            After your reasoning, provide your final judgment in the format: \boxed{1} or \boxed{2} — choose the image that best matches the prompt. If neither image is recognizable, relevant to the prompt, or if it is too difficult to tell which is better, respond with \boxed{-1}. Only one number should appear in the box."
 
         self.max_prompt_length = self.config.model.max_prompt_length
         

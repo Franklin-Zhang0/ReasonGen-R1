@@ -507,6 +507,7 @@ class RayPPOTrainer(object):
         sample_inputs = []
         sample_outputs = []
         sample_scores = []
+        self.val_reward_fn.steps = self.global_steps
 
         for test_data in self.val_dataloader:
             test_batch = DataProto.from_single_dict(test_data)
