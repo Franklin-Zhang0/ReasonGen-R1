@@ -29,6 +29,11 @@ from transformers import AutoTokenizer, PreTrainedTokenizer
 from verl.utils.fs import copy_to_local
 from verl.utils.model import compute_position_id_with_mask
 from verl.utils import hf_tokenizer
+import PIL
+import numpy as np
+from datasets import load_from_disk, concatenate_datasets
+import io
+import base64
 
 
 class SFTDataset(Dataset):
@@ -171,4 +176,275 @@ class SFTDataset(Dataset):
             'attention_mask': attention_mask,
             'position_ids': position_ids,
             'loss_mask': loss_mask
+        }
+        
+def preprocess_img(image, size=(384, 384)):
+    if isinstance(image, str): #base64 
+        # data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQE ...
+        image = image.split(";base64,")[1]
+        image = io.BytesIO(base64.b64decode(image))
+        image = PIL.Image.open(image)
+        
+    image = image.resize(size)
+    image = np.array(image)
+    image = image.astype(np.float32)  # Convert to float32
+    image = image / 255.0 * 2 - 1  # Normalize to [-1, 1]
+    image = np.transpose(image, (2, 0, 1)) # Change to (C, H, W)
+    return image  
+
+dummy_reasoning = """
+1. Identify the objects:
+   - One apple
+   - Two bananas
+   - One plate
+
+2. Determine their count and arrangement:
+   - The apple and bananas should clearly be distinguishable as separate fruits.
+   - The apple should not be duplicated — exactly one.
+   - The bananas should be visible as two, and ideally curved slightly for realism.
+
+3. Layout design:
+   - The apple could be placed in the center or to one side of the plate.
+   - The two bananas might be curved around the apple or placed parallel next to it.
+   - The plate should be visible underneath all three fruits to fulfill the “on a plate” requirement.
+
+4. Background and context:
+   - A neutral or kitchen table background works best — nothing too busy.
+   - Lighting should be soft to enhance the natural look of the fruits.
+"""
+
+class DummySFTDataset(Dataset):
+    """
+    This is an in-memory SFTDataset
+    """
+
+    def __init__(self,
+                 parquet_files: Union[str, List[str]],
+                 processor,
+                 tokenizer,
+                 prompt_key='prompt',
+                 prompt_dict_keys=None,
+                 response_key='response',
+                 response_dict_keys=None,
+                 max_length=1024,
+                 truncation='error'):
+        assert truncation in ['error', 'left', 'right']
+        self.truncation = truncation
+
+        if isinstance(tokenizer, str):
+            tokenizer = hf_tokenizer(tokenizer)
+        self.tokenizer: PreTrainedTokenizer = tokenizer
+        self.processor = processor
+
+        self.max_length = max_length
+        self.template = "First reason in detail about how you can generate an image with the following prompt. Then generate the image. Prompt: {}"
+        self.prompt = "One apple and two bananas on a plate"
+        self.cot = dummy_reasoning
+        self.image = PIL.Image.new('RGB', (384, 384), color='white') 
+        self.image_token_num_per_image = 576
+        self.img_size = 384   
+
+    def __len__(self):
+        return 128
+
+    def __getitem__(self, item):
+        
+        prompt = self.prompt
+        response = self.cot
+        # pil to np array
+        image = preprocess_img(self.image)
+
+        # apply chat template
+        prompt_chat = [
+            {'role': "<|User|>", 'content': self.template.format(prompt)},
+            {'role': "<|Assistant|>", 'content': ""}
+            ]
+
+        # string
+        prompt_chat_str = self.processor.apply_sft_template_for_multi_turn_prompts(prompt_chat, sft_format=self.processor.sft_format, system_prompt="")
+        response_chat_str = response #+ self.processor.image_start_tag
+
+        # tokenize
+        prompt_ids_output = self.tokenizer(prompt_chat_str, return_tensors='pt', add_special_tokens=False)
+        prompt_ids = prompt_ids_output['input_ids'][0]
+        prompt_attention_mask = prompt_ids_output['attention_mask'][0]
+
+        response_ids_output = self.tokenizer(response_chat_str, return_tensors='pt', add_special_tokens=False)
+        response_ids = response_ids_output['input_ids'][0]
+        response_attention_mask = response_ids_output['attention_mask'][0]
+        
+        img_indices = [len(response_ids)]
+        response_ids = self.processor.add_image_token(input_ids = response_ids, image_indices=img_indices)[0]
+        response_attention_mask = torch.cat((response_attention_mask, torch.ones((len(response_ids) - len(response_attention_mask)))), dim=0)
+
+        prompt_length = prompt_ids.shape[0]
+        response_length = response_ids.shape[0]
+        
+        one = torch.ones((1,), dtype=torch.long)
+        true = torch.ones((1,), dtype=torch.bool)
+
+        input_ids = torch.cat((self.tokenizer.bos_token_id * one, prompt_ids, response_ids, self.tokenizer.eos_token_id * one), dim=-1)
+        attention_mask = torch.cat((true, prompt_attention_mask, response_attention_mask, true), dim=-1)
+
+        # padding to max length
+        sequence_length = input_ids.shape[0]
+        if sequence_length < self.max_length:
+            padded_input_ids = torch.ones(size=(self.max_length - sequence_length,),
+                                          dtype=input_ids.dtype) * self.tokenizer.pad_token_id
+            padded_attention_mask = torch.zeros(size=(self.max_length - sequence_length,), dtype=attention_mask.dtype)
+
+            input_ids = torch.cat((input_ids, padded_input_ids))
+            attention_mask = torch.cat((attention_mask, padded_attention_mask))
+        elif sequence_length > self.max_length:
+            if self.truncation == 'left':
+                # actually, left truncation may not be reasonable
+                input_ids = input_ids[-self.max_length:]
+                attention_mask = attention_mask[-self.max_length:]
+            elif self.truncation == 'right':
+                input_ids = input_ids[:self.max_length]
+                attention_mask = attention_mask[:self.max_length]
+            elif self.truncation == 'error':
+                raise NotImplementedError(f'{sequence_length=} is larger than {self.max_length=}')
+            else:
+                raise NotImplementedError(f'Unknown truncation method {self.truncation}')
+
+        position_ids = compute_position_id_with_mask(attention_mask)
+        img_mask = torch.zeros_like(attention_mask, dtype=torch.bool)
+        img_mask[input_ids == self.processor.image_id] = True
+
+        loss_mask = attention_mask.clone()
+        if prompt_length > 1:
+            # mask out prompt for SFT.
+            loss_mask[:min(prompt_length, loss_mask.size(0)) - 1] = 0
+        # mask out the last token in response
+        loss_mask[min(prompt_length + response_length, loss_mask.size(0)) - 1] = 0
+
+        return {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'position_ids': position_ids,
+            'loss_mask': loss_mask,
+            'input_img_mask': img_mask,
+            'pixel_values': image
+        }
+        
+class HFSFTDataset(Dataset):
+
+    def __init__(self,
+                 parquet_files: Union[str, List[str]],
+                 processor,
+                 tokenizer,
+                 prompt_key='prompt',
+                 prompt_dict_keys=None,
+                 response_key='response',
+                 response_dict_keys=None,
+                 image_key='image',
+                 max_length=1024,
+                 truncation='error'):
+        assert truncation in ['error', 'left', 'right']
+        self.truncation = truncation
+        
+        if not isinstance(parquet_files, List):
+            parquet_files = [parquet_files]
+            
+        self.dataset = concatenate_datasets(
+            [load_from_disk(parquet_file) for parquet_file in parquet_files]
+        )
+
+        if isinstance(tokenizer, str):
+            tokenizer = hf_tokenizer(tokenizer)
+        self.tokenizer: PreTrainedTokenizer = tokenizer
+        self.processor = processor
+        self.prompt_key = prompt_key
+        self.cot_key = response_key
+        self.image_key = image_key
+
+        self.max_length = max_length
+        self.template = "First reason in detail about how you can generate an image with the following prompt. Then generate the image. Prompt: {}"
+        self.image_token_num_per_image = 576
+        self.img_size = 384   
+        
+    def __len__(self):
+        return len(self.dataset)
+
+    def __getitem__(self, item):
+        data = self.dataset[item]
+        prompt = data[self.prompt_key]
+        response = data[self.cot_key]
+        image = data[self.image_key]
+        # pil to np array
+        image = preprocess_img(image)
+
+        # apply chat template
+        prompt_chat = [
+            {'role': "<|User|>", 'content': self.template.format(prompt)},
+            {'role': "<|Assistant|>", 'content': ""}
+            ]
+
+        # string
+        prompt_chat_str = self.processor.apply_sft_template_for_multi_turn_prompts(prompt_chat, sft_format=self.processor.sft_format, system_prompt="")
+        response_chat_str = response #+ self.processor.image_start_tag
+
+        # tokenize
+        prompt_ids_output = self.tokenizer(prompt_chat_str, return_tensors='pt', add_special_tokens=False)
+        prompt_ids = prompt_ids_output['input_ids'][0]
+        prompt_attention_mask = prompt_ids_output['attention_mask'][0]
+
+        response_ids_output = self.tokenizer(response_chat_str, return_tensors='pt', add_special_tokens=False)
+        response_ids = response_ids_output['input_ids'][0]
+        response_attention_mask = response_ids_output['attention_mask'][0]
+        
+        img_indices = [len(response_ids)]
+        response_ids = self.processor.add_image_token(input_ids = response_ids, image_indices=img_indices)[0]
+        response_attention_mask = torch.cat((response_attention_mask, torch.ones((len(response_ids) - len(response_attention_mask)))), dim=0)
+
+        prompt_length = prompt_ids.shape[0]
+        response_length = response_ids.shape[0]
+        
+        one = torch.ones((1,), dtype=torch.long)
+        true = torch.ones((1,), dtype=torch.bool)
+
+        input_ids = torch.cat((self.tokenizer.bos_token_id * one, prompt_ids, response_ids, self.tokenizer.eos_token_id * one), dim=-1)
+        attention_mask = torch.cat((true, prompt_attention_mask, response_attention_mask, true), dim=-1)
+
+        # padding to max length
+        sequence_length = input_ids.shape[0]
+        if sequence_length < self.max_length:
+            padded_input_ids = torch.ones(size=(self.max_length - sequence_length,),
+                                          dtype=input_ids.dtype) * self.tokenizer.pad_token_id
+            padded_attention_mask = torch.zeros(size=(self.max_length - sequence_length,), dtype=attention_mask.dtype)
+
+            input_ids = torch.cat((input_ids, padded_input_ids))
+            attention_mask = torch.cat((attention_mask, padded_attention_mask))
+        elif sequence_length > self.max_length:
+            if self.truncation == 'left':
+                # actually, left truncation may not be reasonable
+                input_ids = input_ids[-self.max_length:]
+                attention_mask = attention_mask[-self.max_length:]
+            elif self.truncation == 'right':
+                input_ids = input_ids[:self.max_length]
+                attention_mask = attention_mask[:self.max_length]
+            elif self.truncation == 'error':
+                raise NotImplementedError(f'{sequence_length=} is larger than {self.max_length=}')
+            else:
+                raise NotImplementedError(f'Unknown truncation method {self.truncation}')
+
+        position_ids = compute_position_id_with_mask(attention_mask)
+        img_mask = torch.zeros_like(attention_mask, dtype=torch.bool)
+        img_mask[input_ids == self.processor.image_id] = True
+
+        loss_mask = attention_mask.clone()
+        if prompt_length > 1:
+            # mask out prompt for SFT.
+            loss_mask[:min(prompt_length, loss_mask.size(0)) - 1] = 0
+        # mask out the last token in response
+        loss_mask[min(prompt_length + response_length, loss_mask.size(0)) - 1] = 0
+
+        return {
+            'input_ids': input_ids,
+            'attention_mask': attention_mask,
+            'position_ids': position_ids,
+            'loss_mask': loss_mask,
+            'input_img_mask': img_mask,
+            'pixel_values': image
         }

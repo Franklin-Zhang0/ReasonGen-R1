@@ -380,6 +380,136 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         )
         return output
     
+    def text_generate(self,
+                 input_ids, 
+                 attention_mask, 
+                 do_sample, 
+                 max_new_tokens, 
+                 eos_token_id, 
+                 pad_token_id, 
+                 generation_config=None, 
+                 output_scores=False,
+                 return_dict_in_generate=True, 
+                 use_cache=True
+                ):
+        if generation_config is None:
+            generation_config = {}
+        temperature = generation_config.get("temperature", 1.0)
+        
+        generated_tokens = torch.zeros((1, max_new_tokens), dtype=torch.int).cuda()
+        ended = torch.zeros((input_ids.shape[0],), dtype=torch.bool).cuda()
+        
+        position_ids = torch.clip(torch.cumsum(attention_mask, dim=-1) - 1, min=0, max=None).cuda()
+        inputs_embeds = self.language_model.get_input_embeddings()(input_ids)
+
+        for i in range(max_new_tokens):
+            outputs = self.language_model.model(inputs_embeds=inputs_embeds, 
+                                                attention_mask=attention_mask,
+                                                position_ids=position_ids,
+                                                use_cache=use_cache, 
+                                                past_key_values=outputs.past_key_values if i != 0 else None)
+            hidden_states = outputs.last_hidden_state
+            
+            logits = self.language_model.lm_head(hidden_states[:, -1, :])
+            if not do_sample:
+                next_token = torch.argmax(logits, dim=-1)
+            else:
+                probs = torch.softmax(logits / temperature, dim=-1)
+                next_token = torch.multinomial(probs, num_samples=1).squeeze(dim=-1)
+            next_emb = self.language_model.get_input_embeddings()(next_token)
+            generated_tokens[:, i] = next_token.squeeze(dim=-1)
+            inputs_embeds = next_emb.unsqueeze(dim=1)
+            attention_mask = torch.cat([attention_mask, torch.ones((input_ids.shape[0], 1), dtype=torch.int, device=attention_mask.device)], dim=1)
+            position_ids = (position_ids[:,-1:] + 1).cuda()
+            ended = ended | (next_token == eos_token_id)
+            if ended.all():
+                break
+            
+        output = AttrDict(
+            generated_tokens=generated_tokens,
+            input_ids=input_ids,
+            sequences=generated_tokens,
+        )
+        return output
+            
+    
+    def text_img_generate(self,
+                 input_ids, 
+                 attention_mask, 
+                 do_sample, 
+                 max_new_tokens, 
+                 eos_token_id, 
+                 pad_token_id, 
+                 image_start_token_id,
+                 generation_config=None, 
+                 output_scores=False, 
+                 return_dict_in_generate=True, 
+                 use_cache=True
+                ):
+        if generation_config is None:
+            generation_config = {}
+        cfg_weight = generation_config.get("cfg_weight", 5.0)
+        image_token_num_per_image = generation_config.get("image_token_num_per_image", 576)
+        img_size = generation_config.get("img_size", 384)
+        patch_size = generation_config.get("patch_size", 16)
+        temperature = generation_config.get("temperature", 1.0)
+        
+        text_output = self.text_generate(input_ids,
+                                        attention_mask,
+                                        do_sample,
+                                        max_new_tokens-image_token_num_per_image,
+                                        eos_token_id=image_start_token_id,
+                                        pad_token_id=pad_token_id,
+                                        generation_config=generation_config,
+                                        output_scores=output_scores,
+                                        return_dict_in_generate=return_dict_in_generate,
+                                        use_cache=use_cache
+                                        )
+        
+        text_generated_tokens = text_output.generated_tokens
+        
+        one_pad = torch.ones((text_generated_tokens.shape[0], 1), dtype=torch.long, device=text_generated_tokens.device)
+        new_input_ids = torch.concatenate((input_ids, text_generated_tokens, one_pad), dim=1)
+        max_length = new_input_ids.shape[1]
+        # change to left padding
+        for i in range(new_input_ids.shape[0]):
+            img_start_mask = new_input_ids[i] == image_start_token_id
+            if not img_start_mask.any(): # no padding
+                new_input_ids[i, -1] = image_start_token_id
+            else:
+                img_start_idx = torch.argwhere(img_start_mask)[0][0]
+                new_input_ids[i] = torch.cat([torch.ones((max_length-img_start_idx-1,), dtype=torch.long).cuda()*pad_token_id, new_input_ids[i, :img_start_idx]], dim=0)
+            
+        attention_mask = torch.where(new_input_ids == pad_token_id, 0, 1).to(torch.bool)
+        
+        img_output = self.generate(new_input_ids,
+                                    attention_mask=attention_mask,
+                                    do_sample=do_sample,
+                                    max_new_tokens=max_new_tokens,
+                                    eos_token_id=eos_token_id,
+                                    pad_token_id=pad_token_id,
+                                    generation_config=generation_config,
+                                    output_scores=output_scores,
+                                    return_dict_in_generate=return_dict_in_generate,
+                                    use_cache=use_cache
+                                    )
+        
+        generated_tokens = img_output.generated_tokens
+        input_ids = img_output.input_ids
+        sequences = img_output.sequences
+        seq_img_mask = img_output.seq_img_mask
+        gen_img = img_output.gen_img
+        
+        output = AttrDict(
+            text_tokens=text_generated_tokens,
+            img_tokens=generated_tokens,
+            sequences=sequences,
+            seq_img_mask=seq_img_mask,
+            gen_img=gen_img,
+        )        
+        return output
+                         
+    
     def gradient_checkpointing_enable(self, gradient_checkpointing_kwargs):
         self.enable_gradient_checkpointing = True
         self.gradient_checkpointing_kwargs = gradient_checkpointing_kwargs
@@ -487,6 +617,19 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             logits=logits
         )
         return output
+    
+    def encode_img_gen(self, pixel_values):
+        """
+        Args:
+            pixel_values (torch.FloatTensor): [b, 3, h, w]
+        Output:
+            img_embeds (torch.FloatTensor): [b, n_image_tokens, D]
+        """
+        b = pixel_values.shape[0]
+        images = rearrange(pixel_values, "b c h w -> (b) c h w")
+        _, _, info = self.gen_vision_model.encode(images)
+        code = info[2]
+        return code
         
 
 
