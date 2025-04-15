@@ -501,7 +501,8 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         gen_img = img_output.gen_img
         
         output = AttrDict(
-            text_tokens=text_generated_tokens,
+            text_tokens=new_input_ids,
+            text_gen_tokens=text_generated_tokens,
             img_tokens=generated_tokens,
             sequences=sequences,
             seq_img_mask=seq_img_mask,
