@@ -46,13 +46,17 @@ class ImageGenerationRewardManager:
         step_dir = os.path.join(self.save_path, str(self.steps))
         os.makedirs(step_dir, exist_ok=True)
         
-        for i in range(min(len(gen_img), self.save_num)):
-            save_path = os.path.join(step_dir, "img_{}.jpg".format(i))
-            PIL.Image.fromarray(gen_img[i]).save(save_path)
-            prompt = data.batch['prompts'][i]
-            with open(os.path.join(step_dir, "prompts.txt".format(i)), 'a') as f:
+        with open(os.path.join(step_dir, "prompts.txt"), 'a') as f:
+            for i in range(min(len(gen_img), self.save_num)):
+                save_path = os.path.join(step_dir, "img_{}.jpg".format(i))
+                PIL.Image.fromarray(gen_img[i]).save(save_path)
+                prompt = data.batch['prompts'][i]
                 f.write(f'{self.tokenizer.decode(prompt, skip_special_tokens=True)}\n\n')
-                
+            
+            if 'rm_text' in data.non_tensor_batch:
+                for i in range(min(len(gen_img), self.save_num), 2):
+                    rm_text = data.non_tensor_batch['rm_text'][i]
+                    f.write(f'{rm_text}\n\n')
 
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""

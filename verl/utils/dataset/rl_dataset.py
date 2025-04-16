@@ -394,22 +394,21 @@ class DummyJanusDPORLHFDataset(Dataset):
         self.system_prompt = system_prompt
         self.dummy_prompts = [
             'One apple and two bananas on a plate',
-            'Two cats on a sofa. The cat on the left is black and the cat on the right is white',
-            'A plate on the left of the cup'
+            'A plate on the left of the cup',
             'A lamp on the left side of the bed, and a clock on the right',
             'A red apple on the left and a green apple on the right, both on a plate with a blue rim',
-            'A glass half-filled with orange juice, next to an empty identical glass',
-            'A mirror reflects a person holding a red apple, but the person in the reflection holds a green apple.',
-            'A white book on top of a black book, which is on top of a red book',
-            'Three oranges in a bowl next to a glass of water',
+            'a plant in front of a jar',
+            'a person above a leaf',
+            'three suitcases and one bottle'
+            'one screen and two watchs',
             'A dog lying on a rug in front of a fireplace',
-            'Two books stacked on the right side of a laptop',
+            'two wines and two eggs',
             'A white mug in front of a green notebook on a desk',
-            'A lamp on the left side of the bed, and a clock on the right',
-            'One blue chair between two red chairs',
+            'a green bed and a khaki dish',
+            'a brown bag and a pink car',
             'A pencil and an eraser beside an open notebook',
             'A cat sitting on the windowsill with a plant to its left',
-            'A spoon inside a bowl with a napkin folded beside it',
+            'A white book on top of a black book, which is on top of a red book',
             'A teddy bear on the right side of the pillow on a bed'
         ]
         

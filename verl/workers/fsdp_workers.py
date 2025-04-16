@@ -1120,9 +1120,9 @@ class RewardModelWorker(Worker):
             output_text = self.processor.batch_decode(
                 generated_ids_trimmed, skip_special_tokens=True, clean_up_tokenization_spaces=False
             )
-            print(f'output_text: {output_text}')
+            # print(f'output_text: {output_text}')
             rm_score = self.get_score_from_output(output_text)
-            return rm_score
+            return rm_score, output_text
 
     def _expand_to_token_level(self, data: DataProto, scores: torch.Tensor):
         batch_size = data.batch.batch_size[0]
@@ -1270,20 +1270,22 @@ class RewardModelWorker(Worker):
             num_micro_batches = max(len(rm_data.batch) // self.config.micro_batch_size_per_gpu, 1)
             micro_batches = rm_data.chunk(num_micro_batches)
             output = []
+            output_texts = []
             for micro_batch in micro_batches:
-                rm_score = self._forward_micro_batch(micro_batch)
+                rm_score, output_text = self._forward_micro_batch(micro_batch)
                 output.append(rm_score)
+                output_texts.extend(output_text)
             scores = torch.cat(output, dim=0)  # (batch_size)
             log_gpu_memory_usage('After rollout generation', logger=logger)
 
-            
-            if self._do_switch_chat_template:
-                print(scores, new_rank)
-                scores[new_rank] = scores.clone()
-
             token_level_scores = self._expand_to_token_level(data, scores)
             # Note that this is only the scores, may not be the final rewards used to train RL
-            output = DataProto.from_dict(tensors={'rm_scores': token_level_scores})
+            
+            # interleave repeat text to match the batchsize
+            output_texts = [text for text in output_texts for i in range(len(token_level_scores)//len(output_texts))]
+            
+            output = DataProto.from_dict(tensors={'rm_scores': token_level_scores}, 
+                                         non_tensors={'rm_text': output_texts})
             output = manager.postprocess_data(data=output)
 
         # https://pytorch.org/docs/stable/notes/fsdp.html#fsdp-notes
@@ -1292,6 +1294,9 @@ class RewardModelWorker(Worker):
         offload_fsdp_model_to_cpu(self.reward_module)
 
         output = output.to('cpu')
+        if self._do_switch_chat_template:
+            # print(scores, new_rank)
+            output.batch['rm_scores'][new_rank] = output.batch['rm_scores'][new_rank].clone()
         return output
 
 
