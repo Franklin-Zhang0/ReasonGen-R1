@@ -90,8 +90,8 @@ class FSDPSFTTrainer(object):
             self.processor = VLChatProcessor.from_pretrained(local_model_path)
             self.tokenizer = self.processor.tokenizer
             self.pad_token_id = self.tokenizer.pad_token_id
-            self.image_start_token_id = self.processor.image_start_token
-            self.image_end_token_id = self.processor.image_end_token
+            self.image_start_token_id = self.processor.image_start_id
+            self.image_end_token_id = self.processor.image_end_id
             self.bos_token_id = self.tokenizer.bos_token
         else:
             from verl.utils import hf_tokenizer
@@ -324,11 +324,11 @@ class FSDPSFTTrainer(object):
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 if not use_sp:
                     # Standard forward pass without sequence parallel
-                    labels = input_ids[:, 1:].contiguous()
                     with torch.no_grad():
                         img_code = self.fsdp_model.encode_img_gen(pixel_values=pixel_values)
                     
                     input_ids[input_img_mask] = img_code
+                    labels = input_ids[:, 1:].contiguous()
                     output = self.fsdp_model(input_ids=input_ids,
                                              attention_mask=attention_mask,
                                              position_ids=position_ids,

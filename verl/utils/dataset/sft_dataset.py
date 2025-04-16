@@ -183,7 +183,7 @@ def preprocess_img(image, size=(384, 384)):
         # data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQE ...
         image = image.split(";base64,")[1]
         image = io.BytesIO(base64.b64decode(image))
-        image = PIL.Image.open(image)
+        image = PIL.Image.open(image).convert('RGB')
         
     image = image.resize(size)
     image = np.array(image)
@@ -347,9 +347,16 @@ class HFSFTDataset(Dataset):
         if not isinstance(parquet_files, List):
             parquet_files = [parquet_files]
             
-        self.dataset = concatenate_datasets(
-            [load_from_disk(parquet_file) for parquet_file in parquet_files]
-        )
+        dataset_list = []
+        for file in parquet_files:
+            if '@' in file:
+                path, split = file.split('@')
+                dataset = load_from_disk(path).train_test_split(test_size=0.1, seed=42)[split]
+            else:
+                dataset = load_from_disk(file)
+            dataset_list.append(dataset)
+            
+        self.dataset = concatenate_datasets(dataset_list)
 
         if isinstance(tokenizer, str):
             tokenizer = hf_tokenizer(tokenizer)
@@ -363,6 +370,7 @@ class HFSFTDataset(Dataset):
         self.template = "First reason in detail about how you can generate an image with the following prompt. Then generate the image. Prompt: {}"
         self.image_token_num_per_image = 576
         self.img_size = 384   
+        self.dataset = self.dataset.filter(lambda x: x[self.cot_key] != "")
         
     def __len__(self):
         return len(self.dataset)
