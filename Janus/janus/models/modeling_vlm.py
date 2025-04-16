@@ -576,7 +576,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         inputs_embeds = torch.zeros((duplicated_parallel_size, input_ids.shape[1], text_embeds.shape[-1]), dtype=text_embeds.dtype).cuda()
         
         for i in range(duplicated_parallel_size):
-            inputs_embeds[i, duplicated_img_mask[i], :] = self.prepare_gen_img_embeds(input_ids[i//2, duplicated_img_mask[i]].view(-1))
+            inputs_embeds[i, duplicated_img_mask[i], :] = self.prepare_gen_img_embeds(tokens[i, duplicated_img_mask[i]].view(-1))
             inputs_embeds[i, ~duplicated_img_mask[i], :] = text_embeds[i]
         
         if not self.enable_gradient_checkpointing:
