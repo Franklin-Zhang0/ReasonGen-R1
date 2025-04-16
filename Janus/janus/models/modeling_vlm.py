@@ -571,6 +571,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         after_forward_input_img_mask = torch.cat([input_img_mask, torch.ones(parallel_size, 1, device=input_img_mask.device, dtype=torch.bool)], dim=-1)[:, 1:]
         
         text_embeds = self.language_model.get_input_embeddings()(tokens[~duplicated_img_mask])
+        text_embeds = text_embeds.reshape(duplicated_parallel_size, -1, text_embeds.shape[-1])
 
         inputs_embeds = torch.zeros((duplicated_parallel_size, input_ids.shape[1], text_embeds.shape[-1]), dtype=text_embeds.dtype).cuda()
         
