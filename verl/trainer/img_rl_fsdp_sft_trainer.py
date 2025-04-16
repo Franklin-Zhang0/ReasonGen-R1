@@ -175,7 +175,7 @@ class FSDPSFTTrainer(object):
         self.train_dataloader = DataLoader(dataset=self.train_dataset,
                                            batch_size=config.data.train_batch_size,
                                            sampler=self.train_sampler,
-                                           num_workers=0,
+                                           num_workers=8,
                                            pin_memory=True,
                                            drop_last=True)
 
@@ -187,7 +187,7 @@ class FSDPSFTTrainer(object):
         self.val_dataloader = DataLoader(dataset=self.val_dataset,
                                          batch_size=config.data.micro_batch_size_per_gpu,
                                          sampler=self.val_sampler,
-                                         num_workers=0,
+                                         num_workers=8,
                                          pin_memory=True,
                                          drop_last=True)
 
@@ -219,6 +219,9 @@ class FSDPSFTTrainer(object):
                 self.model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_model_path,
                                                                 torch_dtype=torch.bfloat16,
                                                                 trust_remote_code=trust_remote_code)
+                from copy import deepcopy
+                self.vq_mudule = deepcopy(self.model.gen_vision_model)
+                self.vq_mudule.eval()
             else:
                 from verl.utils import hf_tokenizer, hf_processor
                 self.model = AutoModelForCausalLM.from_pretrained(
@@ -308,26 +311,27 @@ class FSDPSFTTrainer(object):
     def _compute_loss_and_backward(self, batch, do_backward=True):
         """Compute loss with optional sequence parallelism and remove padding features"""
         use_sp = self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
-
+        device = torch.device(f"cuda:{self.device_mesh.get_rank()}")
         # Move inputs to GPU and prepare loss mask
-        input_ids = batch['input_ids'].cuda()
-        attention_mask = batch['attention_mask'].cuda()
-        position_ids = batch['position_ids'].cuda()
-        input_img_mask = batch['input_img_mask'].cuda()
-        loss_mask = batch.pop('loss_mask')[:, :-1].reshape(-1).cuda()
-        pixel_values = batch.pop('pixel_values').cuda()
+        input_ids = batch['input_ids'].to(device)
+        attention_mask = batch['attention_mask'].to(device)
+        position_ids = batch['position_ids'].to(device)
+        input_img_mask = batch['input_img_mask'].to(device)
+        loss_mask = batch.pop('loss_mask')[:, :-1].reshape(-1).to(device)
+        pixel_values = batch.pop('pixel_values').to(device)
         loss_fct = nn.CrossEntropyLoss(reduction='none')
-
+        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+            with torch.no_grad():
+                self.vq_mudule = self.vq_mudule.to(device)
+                img_code = self.vq_mudule.encode(pixel_values)[2][2]
+                        
+            input_ids[input_img_mask] = img_code
         # Context manager for sequence parallel if needed
         context = self.sharding_manager if use_sp else nullcontext()
         with context:
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 if not use_sp:
                     # Standard forward pass without sequence parallel
-                    with torch.no_grad():
-                        img_code = self.fsdp_model.encode_img_gen(pixel_values=pixel_values)
-                    
-                    input_ids[input_img_mask] = img_code
                     labels = input_ids[:, 1:].contiguous()
                     output = self.fsdp_model(input_ids=input_ids,
                                              attention_mask=attention_mask,
