@@ -374,6 +374,31 @@ class HFSFTDataset(Dataset):
         
     def __len__(self):
         return len(self.dataset)
+    
+    def pad_to_max_length(self, input_ids, attention_mask):
+        # padding to max length
+        sequence_length = input_ids.shape[0]
+        if sequence_length < self.max_length:
+            padded_input_ids = torch.ones(size=(self.max_length - sequence_length,),
+                                          dtype=input_ids.dtype) * self.tokenizer.pad_token_id
+            padded_attention_mask = torch.zeros(size=(self.max_length - sequence_length,), dtype=attention_mask.dtype)
+
+            input_ids = torch.cat((input_ids, padded_input_ids))
+            attention_mask = torch.cat((attention_mask, padded_attention_mask))
+        elif sequence_length > self.max_length:
+            if self.truncation == 'left':
+                # actually, left truncation may not be reasonable
+                input_ids = input_ids[-self.max_length:]
+                attention_mask = attention_mask[-self.max_length:]
+            elif self.truncation == 'right':
+                input_ids = input_ids[:self.max_length]
+                attention_mask = attention_mask[:self.max_length]
+            elif self.truncation == 'error':
+                raise NotImplementedError(f'{sequence_length=} is larger than {self.max_length=}')
+            else:
+                raise NotImplementedError(f'Unknown truncation method {self.truncation}')
+        
+        return input_ids, attention_mask
 
     def __getitem__(self, item):
         data = self.dataset[item]
@@ -414,28 +439,8 @@ class HFSFTDataset(Dataset):
 
         input_ids = torch.cat((self.tokenizer.bos_token_id * one, prompt_ids, response_ids, self.tokenizer.eos_token_id * one), dim=-1)
         attention_mask = torch.cat((true, prompt_attention_mask, response_attention_mask, true), dim=-1)
-
-        # padding to max length
-        sequence_length = input_ids.shape[0]
-        if sequence_length < self.max_length:
-            padded_input_ids = torch.ones(size=(self.max_length - sequence_length,),
-                                          dtype=input_ids.dtype) * self.tokenizer.pad_token_id
-            padded_attention_mask = torch.zeros(size=(self.max_length - sequence_length,), dtype=attention_mask.dtype)
-
-            input_ids = torch.cat((input_ids, padded_input_ids))
-            attention_mask = torch.cat((attention_mask, padded_attention_mask))
-        elif sequence_length > self.max_length:
-            if self.truncation == 'left':
-                # actually, left truncation may not be reasonable
-                input_ids = input_ids[-self.max_length:]
-                attention_mask = attention_mask[-self.max_length:]
-            elif self.truncation == 'right':
-                input_ids = input_ids[:self.max_length]
-                attention_mask = attention_mask[:self.max_length]
-            elif self.truncation == 'error':
-                raise NotImplementedError(f'{sequence_length=} is larger than {self.max_length=}')
-            else:
-                raise NotImplementedError(f'Unknown truncation method {self.truncation}')
+        
+        input_ids, attention_mask = self.pad_to_max_length(input_ids, attention_mask)
 
         position_ids = compute_position_id_with_mask(attention_mask)
         img_mask = torch.zeros_like(attention_mask, dtype=torch.bool)

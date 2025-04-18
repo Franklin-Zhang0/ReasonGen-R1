@@ -90,6 +90,7 @@ class FSDPSFTTrainer(object):
             self.processor = VLChatProcessor.from_pretrained(local_model_path)
             self.tokenizer = self.processor.tokenizer
             self.pad_token_id = self.tokenizer.pad_token_id
+            self.eos_token_id = self.tokenizer.eos_token_id
             self.image_start_token_id = self.processor.image_start_id
             self.image_end_token_id = self.processor.image_end_id
             self.bos_token_id = self.tokenizer.bos_token
@@ -307,6 +308,15 @@ class FSDPSFTTrainer(object):
         self.lr_scheduler = get_cosine_schedule_with_warmup(optimizer=self.optimizer,
                                                             num_warmup_steps=num_warmup_steps,
                                                             num_training_steps=self.total_steps)
+        
+    def apply_loss_scale(self, loss, mask_dict):
+        bs = mask_dict['image'].shape[0]
+        loss = loss.reshape(bs, -1)
+        loss[mask_dict['image']] = loss[mask_dict['image']] * self.config.algorithm.loss_scale.image
+        loss[mask_dict['text']] = loss[mask_dict['text']] * self.config.algorithm.loss_scale.text
+        loss[mask_dict['image_start_token']] = loss[mask_dict['image_start_token']] * self.config.algorithm.loss_scale.image_start_token
+        loss = loss.reshape(-1)
+        return loss
 
     def _compute_loss_and_backward(self, batch, do_backward=True):
         """Compute loss with optional sequence parallelism and remove padding features"""
@@ -333,6 +343,14 @@ class FSDPSFTTrainer(object):
                 if not use_sp:
                     # Standard forward pass without sequence parallel
                     labels = input_ids[:, 1:].contiguous()
+                    img_mask = input_img_mask[:, 1:].contiguous()
+                    img_start_token_mask = labels == self.image_start_token_id
+                    text_mask = ~img_mask & ~img_start_token_mask
+                    mask_dict = {
+                        'image': img_mask,
+                        'text': text_mask,
+                        'image_start_token': img_start_token_mask
+                    }
                     output = self.fsdp_model(input_ids=input_ids,
                                              attention_mask=attention_mask,
                                              position_ids=position_ids,
@@ -352,6 +370,7 @@ class FSDPSFTTrainer(object):
                     # Enable model parallelism
                     shift_labels = shift_labels.to(shift_logits.device)
                     loss = loss_fct(shift_logits, shift_labels)
+                    loss = self.apply_loss_scale(loss, mask_dict)
                     loss = loss * loss_mask.to(loss.device)
                 else:
                     # IMPORTANT: We have a big assumption here, so we can shard the SAME sequence across SP ranks
@@ -541,7 +560,7 @@ class FSDPSFTTrainer(object):
             torch.distributed.barrier()
 
             # save checkpoint
-            # self.save_checkpoint(step=global_step)
+            self.save_checkpoint(step=global_step)
 
 
 # from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
