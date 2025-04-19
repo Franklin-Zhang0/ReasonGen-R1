@@ -16,7 +16,7 @@ vl_gpt: MultiModalityCausalLM = AutoModelForCausalLM.from_pretrained(
 )
 vl_gpt = vl_gpt.to(torch.bfloat16).cuda().eval()
 
-template = "First reason in detail about how you can generate an image with the following prompt. Then generate the image. Prompt: {}"
+template = "A photo of {}. Reason in detail about how you can generate an image with the prompt above. Then generate the image."
 prompt = "an ornamental snowflake on a gray background"
 conversation = [
     {

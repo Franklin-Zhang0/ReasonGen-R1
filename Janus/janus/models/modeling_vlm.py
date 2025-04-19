@@ -395,8 +395,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         if generation_config is None:
             generation_config = {}
         temperature = generation_config.get("temperature", 1.0)
-        
-        generated_tokens = torch.zeros((1, max_new_tokens), dtype=torch.int).cuda()
+        generated_tokens = torch.zeros((input_ids.shape[0], max_new_tokens), dtype=torch.int).cuda()
         ended = torch.zeros((input_ids.shape[0],), dtype=torch.bool).cuda()
         
         position_ids = torch.clip(torch.cumsum(attention_mask, dim=-1) - 1, min=0, max=None).cuda()
@@ -476,9 +475,10 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             img_start_mask = new_input_ids[i] == image_start_token_id
             if not img_start_mask.any(): # no padding
                 new_input_ids[i, -1] = image_start_token_id
+                print("no image start token")
             else:
                 img_start_idx = torch.argwhere(img_start_mask)[0][0]
-                new_input_ids[i] = torch.cat([torch.ones((max_length-img_start_idx-1,), dtype=torch.long).cuda()*pad_token_id, new_input_ids[i, :img_start_idx]], dim=0)
+                new_input_ids[i] = torch.cat([torch.ones((max_length-img_start_idx,), dtype=torch.long).cuda()*pad_token_id, new_input_ids[i, :img_start_idx]], dim=0)
             
         attention_mask = torch.where(new_input_ids == pad_token_id, 0, 1).to(torch.bool)
         
