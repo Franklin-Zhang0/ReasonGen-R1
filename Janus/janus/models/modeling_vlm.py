@@ -380,6 +380,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         )
         return output
     
+    @torch.inference_mode()
     def text_generate(self,
                  input_ids, 
                  attention_mask, 
@@ -387,6 +388,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                  max_new_tokens, 
                  eos_token_id, 
                  pad_token_id, 
+                 image_start_token_id,
                  generation_config=None, 
                  output_scores=False,
                  return_dict_in_generate=True, 
@@ -421,6 +423,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             attention_mask = torch.cat([attention_mask, torch.ones((input_ids.shape[0], 1), dtype=torch.int, device=attention_mask.device)], dim=1)
             position_ids = (position_ids[:,-1:] + 1).cuda()
             ended = ended | (next_token == eos_token_id)
+            ended = ended | (next_token == image_start_token_id)
             if ended.all():
                 break
             
@@ -431,7 +434,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         )
         return output
             
-    
+    @torch.inference_mode()
     def text_img_generate(self,
                  input_ids, 
                  attention_mask, 
@@ -457,8 +460,9 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                                         attention_mask,
                                         do_sample,
                                         max_new_tokens-image_token_num_per_image,
-                                        eos_token_id=image_start_token_id,
+                                        eos_token_id=eos_token_id,
                                         pad_token_id=pad_token_id,
+                                        image_start_token_id=image_start_token_id,
                                         generation_config=generation_config,
                                         output_scores=output_scores,
                                         return_dict_in_generate=return_dict_in_generate,
@@ -472,13 +476,14 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         max_length = new_input_ids.shape[1]
         # change to left padding
         for i in range(new_input_ids.shape[0]):
+            new_input_ids[i, :] = torch.where(new_input_ids[i, :] == eos_token_id, image_start_token_id, new_input_ids[i, :])
             img_start_mask = new_input_ids[i] == image_start_token_id
             if not img_start_mask.any(): # no padding
                 new_input_ids[i, -1] = image_start_token_id
                 print("no image start token")
             else:
                 img_start_idx = torch.argwhere(img_start_mask)[0][0]
-                new_input_ids[i] = torch.cat([torch.ones((max_length-img_start_idx,), dtype=torch.long).cuda()*pad_token_id, new_input_ids[i, :img_start_idx]], dim=0)
+                new_input_ids[i] = torch.cat([torch.ones((max_length-img_start_idx-1,), dtype=torch.long).cuda()*pad_token_id, new_input_ids[i, :img_start_idx+1]], dim=0)
             
         attention_mask = torch.where(new_input_ids == pad_token_id, 0, 1).to(torch.bool)
         
