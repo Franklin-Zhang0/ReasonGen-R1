@@ -291,7 +291,7 @@ class JanusTextOnlyRLHFDataset(Dataset):
         chat = [
             {
                 "role": "<|User|>",
-                "content": f"A photo of f{self.prompts[item]}",
+                "content": f"A photo of {self.prompts[item]}",
             },
             {"role": "<|Assistant|>", "content": ""},
         ]
@@ -424,7 +424,7 @@ class DummyJanusDPORLHFDataset(Dataset):
         chat = [
             {
                 "role": "<|User|>",
-                "content": self.dummy_prompts[item%len(self.dummy_prompts)],
+                "content": f"A photo of {self.dummy_prompts[item%len(self.dummy_prompts)]}",
             },
             {"role": "<|Assistant|>", "content": ""},
         ]
