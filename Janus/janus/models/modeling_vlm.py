@@ -402,7 +402,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         
         position_ids = torch.clip(torch.cumsum(attention_mask, dim=-1) - 1, min=0, max=None).cuda()
         inputs_embeds = self.language_model.get_input_embeddings()(input_ids)
-
+        generated_length = 0
         for i in range(max_new_tokens):
             outputs = self.language_model.model(inputs_embeds=inputs_embeds, 
                                                 attention_mask=attention_mask,
@@ -424,13 +424,15 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             position_ids = (position_ids[:,-1:] + 1).cuda()
             ended = ended | (next_token == eos_token_id)
             ended = ended | (next_token == image_start_token_id)
+            generated_length += 1
             if ended.all():
                 break
-            
+        
+        generated_tokens = generated_tokens[:, :generated_length]
         output = AttrDict(
             generated_tokens=generated_tokens,
             input_ids=input_ids,
-            sequences=generated_tokens,
+            sequences=torch.cat((input_ids, generated_tokens), dim=1),
         )
         return output
             
@@ -471,8 +473,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         
         text_generated_tokens = text_output.generated_tokens
         
-        one_pad = torch.ones((text_generated_tokens.shape[0], 1), dtype=torch.long, device=text_generated_tokens.device)
-        new_input_ids = torch.concatenate((input_ids, text_generated_tokens, one_pad), dim=1)
+        new_input_ids = torch.concatenate((input_ids, text_generated_tokens), dim=1)
         max_length = new_input_ids.shape[1]
         # change to left padding
         for i in range(new_input_ids.shape[0]):
