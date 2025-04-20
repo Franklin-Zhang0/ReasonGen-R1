@@ -133,7 +133,7 @@ class FSDPSFTTrainer(object):
     def _build_dataloader(self):
         config = self.config
         # build dataset
-        self.train_dataset = HFSFTDataset(parquet_files=config.data.train_files,
+        self.train_dataset = DummySFTDataset(parquet_files=config.data.train_files,
                                         tokenizer=self.tokenizer,
                                         processor=self.processor,
                                         prompt_key=config.data.prompt_key,
@@ -142,7 +142,7 @@ class FSDPSFTTrainer(object):
                                         response_dict_keys=config.data.get('response_dict_keys', None),
                                         max_length=config.data.max_length,
                                         truncation=config.data.truncation)
-        self.val_dataset = HFSFTDataset(parquet_files=config.data.val_files,
+        self.val_dataset = DummySFTDataset(parquet_files=config.data.val_files,
                                       tokenizer=self.tokenizer,
                                       processor=self.processor,
                                       prompt_key=config.data.prompt_key,
@@ -431,6 +431,12 @@ class FSDPSFTTrainer(object):
                     dp_size = 1
 
                 loss = torch.sum(loss) / (valid_token_this_rank + 1e-8) * dp_size
+                
+                if self.config.algorithm.use_l2_anchor:
+                    for name, param in self.model.named_parameters():
+                        if name in self.init_states:
+                            orig_states = self.init_states[name].to(param.device)
+                            loss += (param - orig_states).pow(2).sum() * self.config.algorithm.l2_anchor_weight
 
                 if do_backward:
                     loss.backward()
@@ -515,6 +521,12 @@ class FSDPSFTTrainer(object):
 
         self.total_training_steps = total_training_steps
         print(f'Total training steps: {self.total_training_steps}')
+        
+        if self.config.algorithm.use_l2_anchor:
+            self.init_states = {}
+            for name, param in self.model.named_parameters():
+                # param here is each FSDP “flat” shard on this rank
+                self.init_states[name] = param.detach().cpu().clone()
 
         # TODO (zhangchi.usc1992) add back checkpoint manager. Currently, it blocks when uploading to hdfs. So very slow.
 

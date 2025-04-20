@@ -26,8 +26,10 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     optim.warmup_steps_ratio=0.05 \
     optim.lr=2e-5 \
     algorithm.loss_scale.image=1.0 \
-    algorithm.loss_scale.text=0.1 \
-    algorithm.loss_scale.image_start_token=2.0 \
+    algorithm.loss_scale.text=1.0 \
+    algorithm.loss_scale.image_start_token=0.0 \
+    algorithm.use_l2_anchor=True \
+    algorithm.l2_anchor_weight=0.01 \
     trainer.default_hdfs_dir=null $@
 
 python ~/thinking.py > /dev/null 2>&1
