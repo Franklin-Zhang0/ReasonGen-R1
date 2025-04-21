@@ -542,9 +542,18 @@ class FSDPSFTTrainer(object):
     def validation_step(self, batch: TensorDict):
         self.fsdp_model.eval()
         with torch.no_grad():
-            loss = self._compute_loss_and_backward(batch, do_backward=False)
+            output = self._compute_loss_and_backward(batch, do_backward=False)
+            loss = output['loss']
             torch.distributed.all_reduce(loss, op=torch.distributed.ReduceOp.AVG)
-        return loss
+            if self.config.algorithm.use_kl_loss:
+                kl_loss = output['kl_loss']
+                torch.distributed.all_reduce(kl_loss, op=torch.distributed.ReduceOp.AVG)
+        log_dict = {
+            'val/loss': loss,
+        }
+        if self.config.algorithm.use_kl_loss:
+            log_dict['val/kl_loss'] = kl_loss
+        return log_dict
 
     def save_checkpoint(self, step):
         # save checkpoint
@@ -600,15 +609,16 @@ class FSDPSFTTrainer(object):
                 # for early exit validation
                 if global_step >= self.total_training_steps:
                     # Perform final validation
-                    val_losses = []
+                    val_logs = []
                     for val_data in self.val_dataloader:
                         val_data = TensorDict(val_data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
-                        val_loss = self.validation_step(val_data)
-                        val_losses.append(val_loss)
+                        val_log = self.validation_step(val_data)
+                        val_logs.append(val_log)
                     if rank == 0:
-                        avg_val_loss = torch.mean(torch.stack(val_losses))
-                        metric = {'val/loss': avg_val_loss.detach().item()}
-                        tracking.log(data=metric, step=global_step)
+                        for key in val_logs[0].keys():
+                            val_metric = torch.mean(torch.stack([log[key] for log in val_logs]))
+                            metric = {key: val_metric.detach().item()}
+                            tracking.log(data=metric, step=global_step)
                     torch.distributed.barrier()
 
                     # Save final checkpoint
@@ -616,15 +626,16 @@ class FSDPSFTTrainer(object):
                     return
 
             # validation
-            val_losses = []
+            val_logs = []
             for data in self.val_dataloader:
                 data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
-                val_loss = self.validation_step(data)
-                val_losses.append(val_loss)
+                val_log = self.validation_step(data)
+                val_logs.append(val_log)
             if rank == 0:
-                val_loss = torch.mean(torch.stack(val_losses))
-                metric = {'val/loss': val_loss.detach().item()}
-                tracking.log(data=metric, step=global_step)
+                for key in val_logs[0].keys():
+                    val_metric = torch.mean(torch.stack([log[key] for log in val_logs]))
+                    metric = {key: val_metric.detach().item()}
+                    tracking.log(data=metric, step=global_step)
             torch.distributed.barrier()
 
             # save checkpoint
