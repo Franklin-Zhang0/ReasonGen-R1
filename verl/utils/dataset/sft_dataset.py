@@ -177,6 +177,16 @@ class SFTDataset(Dataset):
             'position_ids': position_ids,
             'loss_mask': loss_mask
         }
+
+def pad_to_square(image):
+    """
+    Pad the image to make it square.
+    """
+    w, h = image.size
+    size = max(w, h)
+    new_image = PIL.Image.new("RGB", (size, size), (255, 255, 255))
+    new_image.paste(image, ((size - w) // 2, (size - h) // 2))
+    return new_image
         
 def preprocess_img(image, size=(384, 384)):
     if isinstance(image, str): #base64 
@@ -184,7 +194,9 @@ def preprocess_img(image, size=(384, 384)):
         image = image.split(";base64,")[1]
         image = io.BytesIO(base64.b64decode(image))
         image = PIL.Image.open(image).convert('RGB')
-        
+    
+    #pad to square
+    image = pad_to_square(image)
     image = image.resize(size)
     image = np.array(image)
     image = image.astype(np.float32)  # Convert to float32
