@@ -28,8 +28,12 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     algorithm.loss_scale.image=1.0 \
     algorithm.loss_scale.text=1.0 \
     algorithm.loss_scale.image_start_token=0.0 \
-    algorithm.use_l2_anchor=True \
-    algorithm.l2_anchor_weight=0.01 \
+    algorithm.use_kl_loss=True \
+    algorithm.kl_penalty=low_var_kl \
+    algorithm.kl_loss_weight=0.00 \
+    algorithm.kl_loss_scale.image=1.0 \
+    algorithm.kl_loss_scale.text=0.0 \
+    algorithm.kl_loss_scale.image_start_token=0.0 \
     trainer.default_hdfs_dir=null $@
 
 python ~/thinking.py > /dev/null 2>&1

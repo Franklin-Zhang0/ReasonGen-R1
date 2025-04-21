@@ -442,9 +442,10 @@ class HFSFTDataset(Dataset):
         img_indices = [len(response_ids)]
         response_ids = self.processor.add_image_token(input_ids = response_ids, image_indices=img_indices)[0]
         response_attention_mask = torch.cat((response_attention_mask, torch.ones((len(response_ids) - len(response_attention_mask)))), dim=0)
-
-        prompt_length = prompt_ids.shape[0]
-        response_length = response_ids.shape[0]
+        
+        # add bos and eos token
+        prompt_length = prompt_ids.shape[0] + 1
+        response_length = response_ids.shape[0] + 1
         
         one = torch.ones((1,), dtype=torch.long)
         true = torch.ones((1,), dtype=torch.bool)

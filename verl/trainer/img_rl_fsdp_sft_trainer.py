@@ -52,7 +52,10 @@ from verl.workers.sharding_manager import FSDPUlyssesShardingManager
 from verl.utils.ulysses import ulysses_pad_and_slice_inputs, gather_outpus_and_unpad
 from verl import DataProto
 from janus.models import MultiModalityCausalLM, VLChatProcessor
-from omegaconf import OmegaConf
+from copy import deepcopy
+import torch.nn.functional as F
+from verl.utils.torch_functional import logprobs_from_logits
+from verl.trainer.ppo.core_algos import kl_penalty
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_SFT_LOGGING_LEVEL', 'WARN'))
@@ -133,7 +136,7 @@ class FSDPSFTTrainer(object):
     def _build_dataloader(self):
         config = self.config
         # build dataset
-        self.train_dataset = DummySFTDataset(parquet_files=config.data.train_files,
+        self.train_dataset = HFSFTDataset(parquet_files=config.data.train_files,
                                         tokenizer=self.tokenizer,
                                         processor=self.processor,
                                         prompt_key=config.data.prompt_key,
@@ -142,7 +145,7 @@ class FSDPSFTTrainer(object):
                                         response_dict_keys=config.data.get('response_dict_keys', None),
                                         max_length=config.data.max_length,
                                         truncation=config.data.truncation)
-        self.val_dataset = DummySFTDataset(parquet_files=config.data.val_files,
+        self.val_dataset = HFSFTDataset(parquet_files=config.data.val_files,
                                       tokenizer=self.tokenizer,
                                       processor=self.processor,
                                       prompt_key=config.data.prompt_key,
@@ -220,7 +223,7 @@ class FSDPSFTTrainer(object):
                 self.model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_model_path,
                                                                 torch_dtype=torch.bfloat16,
                                                                 trust_remote_code=trust_remote_code)
-                from copy import deepcopy
+                self.model.gen_vision_model.requires_grad = False
                 self.vq_mudule = deepcopy(self.model.gen_vision_model)
                 self.vq_mudule.eval()
             else:
@@ -233,6 +236,13 @@ class FSDPSFTTrainer(object):
                     )
                 self.tokenizer = hf_tokenizer(local_model_path, trust_remote_code=trust_remote_code)
                 self.processor = hf_processor(local_model_path, trust_remote_code=trust_remote_code)
+            
+            if self.config.algorithm.get('use_kl_loss', False):
+                self.ref_model = deepcopy(self.model)
+                self.ref_model.eval()
+                for name, param in self.ref_model.named_parameters():
+                # param here is each FSDP “flat” shard on this rank
+                    param.requires_grad = False
 
             if self.use_remove_padding or self.config.ulysses_sequence_parallel_size > 1:
                 from verl.models.transformers.monkey_patch import apply_monkey_patch
@@ -285,6 +295,19 @@ class FSDPSFTTrainer(object):
                                device_id=torch.cuda.current_device(),
                                cpu_offload=cpu_offload,
                                use_orig_params=False)
+        
+        if self.config.algorithm.get('use_kl_loss', False):
+            self.ref_fsdp_model = FSDP(module=self.ref_model,
+                                       auto_wrap_policy=auto_wrap_policy,
+                                       param_init_fn=init_fn,
+                                       sharding_strategy=ShardingStrategy.FULL_SHARD,
+                                       mixed_precision=mixed_precision,
+                                       device_mesh=self.device_mesh,
+                                       sync_module_states=True,
+                                       device_id=torch.cuda.current_device(),
+                                       cpu_offload=cpu_offload,
+                                       use_orig_params=False)
+            
 
         log_gpu_memory_usage('After FSDP wrapping', logger=logger)
 
@@ -432,15 +455,38 @@ class FSDPSFTTrainer(object):
 
                 loss = torch.sum(loss) / (valid_token_this_rank + 1e-8) * dp_size
                 
-                if self.config.algorithm.use_l2_anchor:
-                    for name, param in self.model.named_parameters():
-                        if name in self.init_states:
-                            orig_states = self.init_states[name].to(param.device)
-                            loss += (param - orig_states).pow(2).sum() * self.config.algorithm.l2_anchor_weight
-
+                if self.config.algorithm.use_kl_loss:
+                    with torch.no_grad():
+                        self.ref_fsdp_model.eval()
+                        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
+                            ref_output = self.ref_fsdp_model(input_ids=input_ids,
+                                                             attention_mask=attention_mask,
+                                                             position_ids=position_ids,
+                                                             input_img_mask=input_img_mask,
+                                                             bos_token_id=self.bos_token_id,
+                                                             pad_token_id=self.pad_token_id,
+                                                             image_start_token_id=self.image_start_token_id,
+                                                             cfg_weight=1.0,
+                                                             use_cache=False)
+                            ref_logits = ref_output['logits'] if isinstance(ref_output, dict) else ref_output.logits
+                            shift_ref_logits = ref_logits[..., :-1, :].contiguous()
+                            shift_ref_logits = shift_ref_logits.view(shift_ref_logits.size(0) * shift_ref_logits.size(1),
+                                                                     shift_ref_logits.size(2))
+                            shift_ref_logits = shift_ref_logits.to(loss.device)
+                            ref_log_prob = logprobs_from_logits(shift_ref_logits, shift_labels)
+                            log_prob = logprobs_from_logits(shift_logits, shift_labels)
+                            kl_loss = kl_penalty(log_prob, ref_log_prob, kl_penalty=self.config.algorithm.kl_penalty)
+                            kl_loss = kl_loss * loss_mask.to(kl_loss.device)
+                            kl_loss = torch.sum(kl_loss) / (valid_token_this_rank + 1e-8) * dp_size
+                            
+                    loss = loss + kl_loss * self.config.algorithm.kl_loss_weight
+                
                 if do_backward:
                     loss.backward()
-                return loss
+                return {
+                    'loss': loss,
+                    'kl_loss': kl_loss if self.config.algorithm.use_kl_loss else None,
+                }
 
     def training_step(self, batch: TensorDict):
         self.fsdp_model.train()
@@ -454,8 +500,14 @@ class FSDPSFTTrainer(object):
         micro_batches = batch.split(self.config.data.micro_batch_size_per_gpu)
         n_micro_batches = len(micro_batches)
         step_loss = 0
+        step_kl_loss = 0
         for micro_batch in micro_batches:
-            loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
+            # loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
+            output = self._compute_loss_and_backward(batch=micro_batch)
+            loss = output['loss'] / n_micro_batches
+            if self.config.algorithm.use_kl_loss:
+                kl_loss = output['kl_loss'] / n_micro_batches
+                step_kl_loss += kl_loss.item()
             step_loss += loss.item()
 
         self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
@@ -475,7 +527,17 @@ class FSDPSFTTrainer(object):
 
         step_loss = torch.tensor(step_loss).cuda()
         torch.distributed.all_reduce(step_loss, op=torch.distributed.ReduceOp.AVG)
-        return {'train/loss': step_loss.detach().item(), 'train/lr(1e-3)': lr * 1e3}
+        if self.config.algorithm.use_kl_loss:
+            step_kl_loss = torch.tensor(step_kl_loss).cuda()
+            torch.distributed.all_reduce(step_kl_loss, op=torch.distributed.ReduceOp.AVG)
+            
+        log_dict = {
+            'train/loss'     : step_loss.detach().item(),
+            'train/lr(1e-3)' : lr * 1e3,
+        }
+        if self.config.algorithm.use_kl_loss:
+            log_dict['train/kl_loss'] = step_kl_loss.detach().item()
+        return log_dict
 
     def validation_step(self, batch: TensorDict):
         self.fsdp_model.eval()
@@ -521,12 +583,6 @@ class FSDPSFTTrainer(object):
 
         self.total_training_steps = total_training_steps
         print(f'Total training steps: {self.total_training_steps}')
-        
-        if self.config.algorithm.use_l2_anchor:
-            self.init_states = {}
-            for name, param in self.model.named_parameters():
-                # param here is each FSDP “flat” shard on this rank
-                self.init_states[name] = param.detach().cpu().clone()
 
         # TODO (zhangchi.usc1992) add back checkpoint manager. Currently, it blocks when uploading to hdfs. So very slow.
 
