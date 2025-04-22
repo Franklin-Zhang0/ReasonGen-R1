@@ -28,6 +28,8 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     algorithm.loss_scale.image=1.0 \
     algorithm.loss_scale.text=1.0 \
     algorithm.loss_scale.image_start_token=0.0 \
+    algorithm.loss_scale.gradual_increase_interval=[0.2,0.5] \
+    algorithm.loss_scale.gradual_increase_key=text \
     algorithm.use_kl_loss=True \
     algorithm.kl_penalty=low_var_kl \
     algorithm.kl_loss_weight=0.00 \

@@ -47,6 +47,8 @@ algorithm:
     image: 1.0
     text: 1.0
     image_start_token: 1.0
+    gradual_increase_key: []
+    gradual_increase_interval: [0.0, 0.0]
   use_kl_loss: False
   kl_penalty: low_var_kl
   kl_loss_weight: 0.001

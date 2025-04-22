@@ -56,6 +56,7 @@ from copy import deepcopy
 import torch.nn.functional as F
 from verl.utils.torch_functional import logprobs_from_logits
 from verl.trainer.ppo.core_algos import kl_penalty
+import numpy as np
 
 logger = logging.getLogger(__file__)
 logger.setLevel(os.getenv('VERL_SFT_LOGGING_LEVEL', 'WARN'))
@@ -335,9 +336,17 @@ class FSDPSFTTrainer(object):
     def apply_loss_scale(self, loss, mask_dict):
         bs = mask_dict['image'].shape[0]
         loss = loss.reshape(bs, -1)
-        loss[mask_dict['image']] = loss[mask_dict['image']] * self.config.algorithm.loss_scale.image
-        loss[mask_dict['text']] = loss[mask_dict['text']] * self.config.algorithm.loss_scale.text
-        loss[mask_dict['image_start_token']] = loss[mask_dict['image_start_token']] * self.config.algorithm.loss_scale.image_start_token
+        loss_scale = self.config.algorithm.loss_scale
+        gradual_increase_key = self.config.algorithm.loss_scale.gradual_increase_key
+        start_ratio, end_ratio = self.config.algorithm.loss_scale.gradual_increase_interval
+        start_ratio, end_ratio = float(start_ratio), float(end_ratio)
+        
+        for key in mask_dict.keys():
+            loss[mask_dict[key]] = loss[mask_dict[key]] * loss_scale[key]
+            if key in gradual_increase_key:
+                current_ratio = self.global_step / self.total_steps
+                scale = (np.clip(current_ratio, start_ratio, end_ratio) - start_ratio) / (end_ratio - start_ratio)
+                loss[mask_dict[key]] *= scale
         loss = loss.reshape(-1)
         return loss
 
@@ -581,7 +590,7 @@ class FSDPSFTTrainer(object):
                                 experiment_name=self.config.trainer.experiment_name,
                                 default_backend=self.config.trainer.logger)
 
-        global_step = 0
+        self.global_step = 0
         # compute the total training steps.
         # the total training steps in SFT is mainly for early exit
         total_training_steps = len(self.train_dataloader) * self.config.trainer.total_epochs
@@ -599,14 +608,14 @@ class FSDPSFTTrainer(object):
             for data in tqdm(self.train_dataloader,
                              total=self.steps_per_epoch,
                              desc=f"Epoch {epoch+1}/{self.config.trainer.total_epochs}"):
-                global_step += 1
+                self.global_step += 1
                 data = TensorDict(data, batch_size=self.config.data.train_batch_size).cuda()
                 metric = self.training_step(data)
                 if rank == 0:
-                    tracking.log(data=metric, step=global_step)
+                    tracking.log(data=metric, step=self.global_step)
 
                 # for early exit validation
-                if global_step >= self.total_training_steps:
+                if self.global_step >= self.total_training_steps:
                     # Perform final validation
                     val_logs = []
                     for val_data in self.val_dataloader:
@@ -617,11 +626,11 @@ class FSDPSFTTrainer(object):
                         for key in val_logs[0].keys():
                             val_metric = torch.mean(torch.stack([log[key] for log in val_logs]))
                             metric = {key: val_metric.detach().item()}
-                            tracking.log(data=metric, step=global_step)
+                            tracking.log(data=metric, step=self.global_step)
                     torch.distributed.barrier()
 
                     # Save final checkpoint
-                    self.save_checkpoint(step=global_step)
+                    self.save_checkpoint(step=self.global_step)
                     return
 
             # validation
@@ -634,11 +643,11 @@ class FSDPSFTTrainer(object):
                 for key in val_logs[0].keys():
                     val_metric = torch.mean(torch.stack([log[key] for log in val_logs]))
                     metric = {key: val_metric.detach().item()}
-                    tracking.log(data=metric, step=global_step)
+                    tracking.log(data=metric, step=self.global_step)
             torch.distributed.barrier()
 
             # save checkpoint
-            self.save_checkpoint(step=global_step)
+            self.save_checkpoint(step=self.global_step)
 
 
 # from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
