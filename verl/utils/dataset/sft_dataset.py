@@ -187,8 +187,34 @@ def pad_to_square(image):
     new_image = PIL.Image.new("RGB", (size, size), (255, 255, 255))
     new_image.paste(image, ((size - w) // 2, (size - h) // 2))
     return new_image
+
+def random_crop_to_square(image):
+    """
+    Randomly crop the image to make it square.
+    """
+    w, h = image.size
+    size = min(w, h)
+    left = np.random.randint(0, w - size + 1)
+    top = np.random.randint(0, h - size + 1)
+    right = left + size
+    bottom = top + size
+    
+    return image.crop((left, top, right, bottom))
+
+def center_crop_to_square(image):
+    """
+    Center crop the image to make it square.
+    """
+    w, h = image.size
+    size = min(w, h)
+    left = (w - size) // 2
+    top = (h - size) // 2
+    right = left + size
+    bottom = top + size
+    
+    return image.crop((left, top, right, bottom))
         
-def preprocess_img(image, size=(384, 384)):
+def preprocess_img(image, size=(384, 384), processing=None):
     if isinstance(image, str): #base64 
         # data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAIBAQEBAQIBAQE ...
         image = image.split(";base64,")[1]
@@ -196,7 +222,17 @@ def preprocess_img(image, size=(384, 384)):
         image = PIL.Image.open(image).convert('RGB')
     
     #pad to square
-    image = pad_to_square(image)
+    if processing == 'random_crop':
+        image = random_crop_to_square(image)
+    elif processing == 'center_crop':
+        image = center_crop_to_square(image)
+    elif processing == 'pad':
+        image = pad_to_square(image)
+    elif processing is None:
+        pass
+    else:
+        raise NotImplementedError(f'Unknown processing method {processing}')
+    
     image = image.resize(size)
     image = np.array(image)
     image = image.astype(np.float32)  # Convert to float32
@@ -364,8 +400,13 @@ class HFSFTDataset(Dataset):
             if '@' in file:
                 path, split = file.split('@')
                 dataset = load_from_disk(path).train_test_split(test_size=0.1, seed=42)[split]
+                if split == 'train':
+                    self.image_processing = 'random_crop'
+                else:
+                    self.image_processing = 'center_crop'
             else:
                 dataset = load_from_disk(file)
+                self.image_processing = 'random_crop'
             dataset_list.append(dataset)
             
         self.dataset = concatenate_datasets(dataset_list)
@@ -418,7 +459,7 @@ class HFSFTDataset(Dataset):
         response = data[self.cot_key]
         image = data[self.image_key]
         # pil to np array
-        image = preprocess_img(image)
+        image = preprocess_img(image, processing=self.image_processing)
 
         # apply chat template
         prompt_chat = [
