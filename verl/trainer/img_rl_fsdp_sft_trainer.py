@@ -458,26 +458,25 @@ class FSDPSFTTrainer(object):
                 if self.config.algorithm.use_kl_loss:
                     with torch.no_grad():
                         self.ref_fsdp_model.eval()
-                        with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                            ref_output = self.ref_fsdp_model(input_ids=input_ids,
-                                                             attention_mask=attention_mask,
-                                                             position_ids=position_ids,
-                                                             input_img_mask=input_img_mask,
-                                                             bos_token_id=self.bos_token_id,
-                                                             pad_token_id=self.pad_token_id,
-                                                             image_start_token_id=self.image_start_token_id,
-                                                             cfg_weight=1.0,
-                                                             use_cache=False)
-                            ref_logits = ref_output['logits'] if isinstance(ref_output, dict) else ref_output.logits
-                            shift_ref_logits = ref_logits[..., :-1, :].contiguous()
-                            shift_ref_logits = shift_ref_logits.view(shift_ref_logits.size(0) * shift_ref_logits.size(1),
-                                                                     shift_ref_logits.size(2))
-                            shift_ref_logits = shift_ref_logits.to(loss.device)
-                            ref_log_prob = logprobs_from_logits(shift_ref_logits, shift_labels)
-                            log_prob = logprobs_from_logits(shift_logits, shift_labels)
-                            kl_loss = kl_penalty(log_prob, ref_log_prob, kl_penalty=self.config.algorithm.kl_penalty)
-                            kl_loss = kl_loss * loss_mask.to(kl_loss.device)
-                            kl_loss = torch.sum(kl_loss) / (valid_token_this_rank + 1e-8) * dp_size
+                        ref_output = self.ref_fsdp_model(input_ids=input_ids,
+                                                            attention_mask=attention_mask,
+                                                            position_ids=position_ids,
+                                                            input_img_mask=input_img_mask,
+                                                            bos_token_id=self.bos_token_id,
+                                                            pad_token_id=self.pad_token_id,
+                                                            image_start_token_id=self.image_start_token_id,
+                                                            cfg_weight=1.0,
+                                                            use_cache=False)
+                        ref_logits = ref_output['logits'] if isinstance(ref_output, dict) else ref_output.logits
+                        shift_ref_logits = ref_logits[..., :-1, :].contiguous()
+                        shift_ref_logits = shift_ref_logits.view(shift_ref_logits.size(0) * shift_ref_logits.size(1),
+                                                                    shift_ref_logits.size(2))
+                        shift_ref_logits = shift_ref_logits.to(loss.device)
+                    ref_log_prob = logprobs_from_logits(shift_ref_logits, shift_labels)
+                    log_prob = logprobs_from_logits(shift_logits, shift_labels)
+                    kl_loss = kl_penalty(log_prob, ref_log_prob, kl_penalty=self.config.algorithm.kl_penalty)
+                    kl_loss = kl_loss * loss_mask.to(kl_loss.device)
+                    kl_loss = torch.sum(kl_loss) / (valid_token_this_rank + 1e-8) * dp_size
                             
                     loss = loss + kl_loss * self.config.algorithm.kl_loss_weight
                 
