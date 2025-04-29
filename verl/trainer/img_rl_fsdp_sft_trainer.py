@@ -341,14 +341,17 @@ class FSDPSFTTrainer(object):
         start_ratio, end_ratio = self.config.algorithm.loss_scale.gradual_increase_interval
         start_ratio, end_ratio = float(start_ratio), float(end_ratio)
         
+        loss_dict = {}
         for key in mask_dict.keys():
+            loss_dict[key] = loss[mask_dict[key]]
+            loss_dict[key] = torch.sum(loss_dict[key]) / (torch.sum(loss_dict[key]>0.0) + 1e-8)
             loss[mask_dict[key]] = loss[mask_dict[key]] * loss_scale[key]
             if key in gradual_increase_key:
                 current_ratio = self.global_step / self.total_steps
                 scale = (np.clip(current_ratio, start_ratio, end_ratio) - start_ratio) / (end_ratio - start_ratio)
                 loss[mask_dict[key]] *= scale
         loss = loss.reshape(-1)
-        return loss
+        return loss, loss_dict
 
     def _compute_loss_and_backward(self, batch, do_backward=True):
         """Compute loss with optional sequence parallelism and remove padding features"""
@@ -402,8 +405,8 @@ class FSDPSFTTrainer(object):
                     # Enable model parallelism
                     shift_labels = shift_labels.to(shift_logits.device)
                     loss = loss_fct(shift_logits, shift_labels)
-                    loss = self.apply_loss_scale(loss, mask_dict)
                     loss = loss * loss_mask.to(loss.device)
+                    loss, loss_dict = self.apply_loss_scale(loss, mask_dict)
                 else:
                     # IMPORTANT: We have a big assumption here, so we can shard the SAME sequence across SP ranks
                     # i.e., each GPU has <1 sequence, and each SP group has 1 sequence
@@ -494,6 +497,7 @@ class FSDPSFTTrainer(object):
                 return {
                     'loss': loss,
                     'kl_loss': kl_loss if self.config.algorithm.use_kl_loss else None,
+                    'loss_dict': loss_dict
                 }
 
     def training_step(self, batch: TensorDict):
@@ -509,6 +513,7 @@ class FSDPSFTTrainer(object):
         n_micro_batches = len(micro_batches)
         step_loss = 0
         step_kl_loss = 0
+        loss_dict = {}
         for micro_batch in micro_batches:
             # loss = self._compute_loss_and_backward(batch=micro_batch) / n_micro_batches
             output = self._compute_loss_and_backward(batch=micro_batch)
@@ -517,6 +522,10 @@ class FSDPSFTTrainer(object):
                 kl_loss = output['kl_loss'] / n_micro_batches
                 step_kl_loss += kl_loss.item()
             step_loss += loss.item()
+            for key in output['loss_dict'].keys():
+                if key not in loss_dict:
+                    loss_dict[key] = 0
+                loss_dict[key] += output['loss_dict'][key].item() / n_micro_batches
 
         self.fsdp_model.clip_grad_norm_(max_norm=self.config.optim.clip_grad)
 
@@ -538,11 +547,16 @@ class FSDPSFTTrainer(object):
         if self.config.algorithm.use_kl_loss:
             step_kl_loss = torch.tensor(step_kl_loss).cuda()
             torch.distributed.all_reduce(step_kl_loss, op=torch.distributed.ReduceOp.AVG)
+        for key in loss_dict.keys():
+            loss_dict[key] = torch.tensor(loss_dict[key]).cuda()
+            torch.distributed.all_reduce(loss_dict[key], op=torch.distributed.ReduceOp.AVG)
             
         log_dict = {
             'train/loss'     : step_loss.detach().item(),
             'train/lr(1e-3)' : lr * 1e3,
         }
+        for key in loss_dict.keys():
+            log_dict[f'train/{key}'] = loss_dict[key].detach().item()
         if self.config.algorithm.use_kl_loss:
             log_dict['train/kl_loss'] = step_kl_loss.detach().item()
         return log_dict
@@ -556,9 +570,14 @@ class FSDPSFTTrainer(object):
             if self.config.algorithm.use_kl_loss:
                 kl_loss = output['kl_loss']
                 torch.distributed.all_reduce(kl_loss, op=torch.distributed.ReduceOp.AVG)
+            for key in output['loss_dict'].keys():
+                output['loss_dict'][key] = torch.tensor(output['loss_dict'][key]).cuda()
+                torch.distributed.all_reduce(output['loss_dict'][key], op=torch.distributed.ReduceOp.AVG)
         log_dict = {
             'val/loss': loss,
         }
+        for key in output['loss_dict'].keys():
+            log_dict[f'val/{key}'] = output['loss_dict'][key].detach().item()
         if self.config.algorithm.use_kl_loss:
             log_dict['val/kl_loss'] = kl_loss
         return log_dict

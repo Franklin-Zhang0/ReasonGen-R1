@@ -423,7 +423,7 @@ class HFSFTDataset(Dataset):
         self.template = "A photo of {}. Reason in detail about how you can generate an image with the prompt above. Then generate the image."
         self.image_token_num_per_image = 576
         self.img_size = 384   
-        self.dataset = self.dataset.filter(lambda x: x[self.cot_key] != "")
+        # self.dataset = self.dataset.filter(lambda x: x[self.cot_key] != "")
         
     def __len__(self):
         return len(self.dataset)
