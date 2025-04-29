@@ -1,9 +1,10 @@
 set -x
 
+TEMPLATE='A photo of {}. Generate a detailed description of how to create an image strictly based on the information in the caption. Do not add extra elements or creative interpretation beyond the raw caption. Pay close attention to all specific details in the caption—such as color, position, number, orientation, and object types. Your output should be a breakdown of how to create the image, suitable for guiding an image generation model. Please directly output the reasoning steps.'
+
 nproc_per_node=4
 save_path=/blob/franklin/ckpt/image_rl/janus_sft/100k_sample/100k_sample_7B_bs128_lr2e-6_image_only_1.0_0429
 # save_path=/blob/franklin/ckpt/image_rl/janus_sft/test
-
 
 torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
      -m verl.trainer.img_rl_fsdp_sft_trainer \
@@ -14,6 +15,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     data.response_key=sft_prompt \
     data.max_length=1792 \
     data.micro_batch_size_per_gpu=4 \
+    'data.chat_template="'"$TEMPLATE"'"' \
     model.partial_pretrain=deepseek-ai/Janus-Pro-7B \
     model.enable_gradient_checkpointing=True \
     trainer.default_local_dir=$save_path \

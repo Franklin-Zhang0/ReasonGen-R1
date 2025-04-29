@@ -388,7 +388,8 @@ class HFSFTDataset(Dataset):
                  response_dict_keys=None,
                  image_key='image',
                  max_length=1024,
-                 truncation='error'):
+                 truncation='error',
+                 template=""):
         assert truncation in ['error', 'left', 'right']
         self.truncation = truncation
         
@@ -420,7 +421,7 @@ class HFSFTDataset(Dataset):
         self.image_key = image_key
 
         self.max_length = max_length
-        self.template = "A photo of {}. Reason in detail about how you can generate an image with the prompt above. Then generate the image."
+        self.template = template
         self.image_token_num_per_image = 576
         self.img_size = 384   
         # self.dataset = self.dataset.filter(lambda x: x[self.cot_key] != "")
@@ -466,7 +467,7 @@ class HFSFTDataset(Dataset):
             {'role': "<|User|>", 'content': self.template.format(prompt)},
             {'role': "<|Assistant|>", 'content': ""}
             ]
-
+        breakpoint()
         # string
         prompt_chat_str = self.processor.apply_sft_template_for_multi_turn_prompts(prompt_chat, sft_format=self.processor.sft_format, system_prompt="")
         response_chat_str = response #+ self.processor.image_start_tag
