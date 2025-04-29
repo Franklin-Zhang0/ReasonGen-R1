@@ -467,7 +467,6 @@ class HFSFTDataset(Dataset):
             {'role': "<|User|>", 'content': self.template.format(prompt)},
             {'role': "<|Assistant|>", 'content': ""}
             ]
-        breakpoint()
         # string
         prompt_chat_str = self.processor.apply_sft_template_for_multi_turn_prompts(prompt_chat, sft_format=self.processor.sft_format, system_prompt="")
         response_chat_str = response #+ self.processor.image_start_tag
