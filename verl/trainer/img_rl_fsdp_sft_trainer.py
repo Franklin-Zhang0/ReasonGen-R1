@@ -574,14 +574,9 @@ class FSDPSFTTrainer(object):
             if self.config.algorithm.use_kl_loss:
                 kl_loss = output['kl_loss']
                 torch.distributed.all_reduce(kl_loss, op=torch.distributed.ReduceOp.AVG)
-            for key in output['loss_dict'].keys():
-                output['loss_dict'][key] = torch.tensor(output['loss_dict'][key]).cuda()
-                torch.distributed.all_reduce(output['loss_dict'][key], op=torch.distributed.ReduceOp.AVG)
         log_dict = {
             'val/loss': loss,
         }
-        for key in output['loss_dict'].keys():
-            log_dict[f'val/{key}'] = output['loss_dict'][key].detach().item()
         if self.config.algorithm.use_kl_loss:
             log_dict['val/kl_loss'] = kl_loss
         return log_dict
