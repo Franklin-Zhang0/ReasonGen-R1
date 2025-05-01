@@ -134,18 +134,18 @@ if __name__ == '__main__':
 
     print('Writing to local disk')
     hf_path = os.path.join(local_dir, 'huggingface')
+    from janus.models import MultiModalityCausalLM, VLChatProcessor
     config = AutoConfig.from_pretrained(hf_path)
 
-    if 'ForTokenClassification' in config.architectures[0]:
-        auto_model = AutoModelForTokenClassification
-    elif 'ForCausalLM' in config.architectures[0]:
-        auto_model = AutoModelForCausalLM
-    elif 'ForConditionalGeneration' in config.architectures[0]:
-        auto_model = AutoModelForVision2Seq
-    else:
-        raise NotImplementedError(f'Unknown architecture {config["architectures"]}')
-
-    with torch.device('meta'):
+    # if 'ForTokenClassification' in config.architectures[0]:
+    #     auto_model = AutoModelForTokenClassification
+    # elif 'ForCausalLM' in config.architectures[0]:
+    auto_model = AutoModelForCausalLM
+    # elif 'ForConditionalGeneration' in config.architectures[0]:
+    #     auto_model = AutoModelForVision2Seq
+    # else:
+    #     raise NotImplementedError(f'Unknown architecture {config["architectures"]}')
+    with torch.device('cpu'):
         model = auto_model.from_config(config, torch_dtype=torch.bfloat16)
     model.to_empty(device='cpu')
 
