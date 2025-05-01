@@ -2,7 +2,7 @@ set -x
 
 export VLLM_ATTENTION_BACKEND=XFORMERS
 
-SYSTEM_PROMPT="Reason about how you should generate the image"
+SYSTEM_PROMPT=""
 
 GPUS=`nvidia-smi -L | wc -l`
 MODEL_PATH=deepseek-ai/Janus-Pro-7B  # replace it with your local file path
@@ -10,6 +10,7 @@ RM_MODEL_PATH=Qwen/Qwen2.5-VL-7B-Instruct
 RUN_NAME="Janus_pro_7B-DPO-filter"
 PROJ_NAME="verl_janus_test"
 SAVE_DIR=/blob/franklin/ckpt/image_rl/$PROJ_NAME/$RUN_NAME
+TEMPLATE='A photo of {}. Generate a detailed description of how to create an image strictly based on the information in the caption. Do not add extra elements or creative interpretation beyond the raw caption. Pay close attention to all specific details in the caption—such as color, position, number, orientation, and object types. Your output should be a breakdown of how to create the image, suitable for guiding an image generation model. Please directly output the reasoning steps.'
 export HYDRA_FULL_ERROR=1
 
 if [ "$RANK" -eq 0 ]; then
@@ -23,6 +24,7 @@ python3 -m verl.trainer.image_generation_rl \
     data.max_response_length=600 \
     data.filter_overlong_prompts=True \
     data.truncation='error' \
+    'data.prompt_template="'"$TEMPLATE"'"' \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=1e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
@@ -45,6 +47,7 @@ python3 -m verl.trainer.image_generation_rl \
     actor_rollout_ref.rollout.micro_batch_size=4 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=16 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
+    actor_rollout_ref.rollout.cot_generate=True \
     algorithm.kl_ctrl.kl_coef=0.001 \
     algorithm.filter_groups.enable=True \
     trainer.critic_warmup=0 \

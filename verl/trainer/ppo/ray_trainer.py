@@ -412,7 +412,10 @@ class RayPPOTrainer(object):
                                          filter_prompts=True,
                                          return_raw_chat=self.config.data.get('return_raw_chat', False),
                                          truncation=self.config.data.get('truncation', 'error'),
-                                         filter_overlong_prompts=self.config.data.filter_overlong_prompts)
+                                         filter_overlong_prompts=self.config.data.filter_overlong_prompts,
+                                         cot_generate=self.config.actor_rollout_ref.rollout.cot_generate,
+                                         prompt_template=self.config.data.prompt_template,
+                                         )
         assert self.train_dataset.truncation == self.config.data.get(
             'truncation', 'error'
         ), f'dataset truncation {self.train_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
@@ -953,6 +956,7 @@ class RayPPOTrainer(object):
                                 # old_batch = old_batch[:traj_bsz]
                                 old_batch = old_batch.apply_mask(mask)
                                 batch = old_batch
+                                num_gen_batches += 1
 
                     
                     # recompute old_log_probs

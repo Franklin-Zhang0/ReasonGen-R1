@@ -14,6 +14,7 @@ data:
   filter_overlong_prompts: False # for large-scale dataset, filtering overlong prompts could be timeconsuming. You should disable this and set `truncation='left'
   truncation: error
   image_key: images
+  prompt_template: null
 
 actor_rollout_ref:
   hybrid_engine: True
@@ -103,6 +104,7 @@ actor_rollout_ref:
     do_sample: True
     # number of responses (i.e. num sample times)
     n: 1 # > 1 for grpo
+    cot_generate: False
     val_kwargs:
       # sampling parameters for validation
       top_k: 0 # 0 for hf rollout, -1 for vllm rollout

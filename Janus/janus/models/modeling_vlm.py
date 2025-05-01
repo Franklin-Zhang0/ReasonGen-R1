@@ -475,16 +475,20 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         
         new_input_ids = torch.concatenate((input_ids, text_generated_tokens), dim=1)
         max_length = new_input_ids.shape[1]
+        cat_lengths = []
         # change to left padding
         for i in range(new_input_ids.shape[0]):
             new_input_ids[i, :] = torch.where(new_input_ids[i, :] == eos_token_id, image_start_token_id, new_input_ids[i, :])
             img_start_mask = new_input_ids[i] == image_start_token_id
             if not img_start_mask.any(): # no padding
                 new_input_ids[i, -1] = image_start_token_id
-                print("no image start token")
+                cat_length = 0
+                # print("no image start token")
             else:
                 img_start_idx = torch.argwhere(img_start_mask)[0][0]
                 new_input_ids[i] = torch.cat([torch.ones((max_length-img_start_idx-1,), dtype=torch.long).cuda()*pad_token_id, new_input_ids[i, :img_start_idx+1]], dim=0)
+                cat_length = max_length - img_start_idx - 1
+            cat_lengths.append(cat_length)
             
         attention_mask = torch.where(new_input_ids == pad_token_id, 0, 1).to(torch.bool)
         
@@ -504,6 +508,14 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         input_ids = img_output.input_ids
         sequences = img_output.sequences
         seq_img_mask = img_output.seq_img_mask
+        
+        # align the prompt and response
+        for i in range(sequences.shape[0]):
+            if cat_lengths[i] == 0: continue
+            sequences[i, :-cat_lengths[i]] = sequences[i, cat_lengths[i]:].clone()
+            sequences[i, -cat_lengths[i]:] = pad_token_id
+            seq_img_mask[i, :-cat_lengths[i]] = seq_img_mask[i, cat_lengths[i]:].clone()
+            seq_img_mask[i, -cat_lengths[i]:] = False
         gen_img = img_output.gen_img
         
         output = AttrDict(

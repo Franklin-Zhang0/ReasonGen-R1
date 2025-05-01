@@ -46,6 +46,7 @@ class HFRollout(BaseRollout):
         super().__init__()
         self.config = config
         self.module = module
+        self.cot_generate = config.get('cot_generate', False)
 
     def generate_sequences(self, prompts: DataProto) -> DataProto:
         batch_size = prompts.batch.batch_size[0]
@@ -65,6 +66,7 @@ class HFRollout(BaseRollout):
         # used to construct attention_mask
         eos_token_id = prompts.meta_info['eos_token_id']
         pad_token_id = prompts.meta_info['pad_token_id']
+        image_start_token_id = prompts.meta_info['image_start_token_id']
 
         batch_size = idx.size(0)
         prompt_length = idx.size(1)
@@ -122,19 +124,34 @@ class HFRollout(BaseRollout):
             param_ctx = FSDP.summon_full_params(self.module, writeback=False, recurse=False)
         with param_ctx:
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
-                output = self.module.generate(
-                    input_ids=idx,
-                    attention_mask=attention_mask,
-                    do_sample=do_sample,
-                    max_new_tokens=response_length,
-                    # max_length=max_length,
-                    eos_token_id=eos_token_id,
-                    pad_token_id=pad_token_id,
-                    generation_config=generation_config,
-                    # renormalize_logits=True,
-                    output_scores=False,  # this is potentially very large
-                    return_dict_in_generate=True,
-                    use_cache=True)
+                if self.cot_generate:
+                    output = self.module.text_img_generate(
+                        input_ids=idx,
+                        attention_mask=attention_mask,
+                        do_sample=do_sample,
+                        max_new_tokens=response_length,
+                        eos_token_id=eos_token_id,
+                        pad_token_id=pad_token_id,
+                        image_start_token_id=image_start_token_id,
+                        generation_config=generation_config,
+                        output_scores=False,  # this is potentially very large
+                        return_dict_in_generate=True,
+                        use_cache=True)
+                    text_tokens = output.text_tokens
+                else:
+                    output = self.module.generate(
+                        input_ids=idx,
+                        attention_mask=attention_mask,
+                        do_sample=do_sample,
+                        max_new_tokens=response_length,
+                        # max_length=max_length,
+                        eos_token_id=eos_token_id,
+                        pad_token_id=pad_token_id,
+                        generation_config=generation_config,
+                        # renormalize_logits=True,
+                        output_scores=False,  # this is potentially very large
+                        return_dict_in_generate=True,
+                        use_cache=True)
         # TODO: filter out the seq with no answers like ds-chat
         seq = output.sequences
         seq_img_mask = output.seq_img_mask
@@ -150,6 +167,10 @@ class HFRollout(BaseRollout):
             seq = torch.cat((seq, delta_tokens), dim=1)
             delta_seq_img_mask = torch.zeros(size=(batch_size, delta_length), device=seq.device, dtype=seq_img_mask.dtype)
             seq_img_mask = torch.cat((seq_img_mask, delta_seq_img_mask), dim=1)
+            if self.cot_generate:
+                delta_text_tokens = torch.ones(size=(batch_size, delta_length), device=text_tokens.device, dtype=text_tokens.dtype)
+                delta_text_tokens = pad_token_id * delta_text_tokens
+                text_tokens = torch.cat((text_tokens, delta_text_tokens), dim=1)
 
         assert seq.shape[1] == sequence_length
 
@@ -164,7 +185,8 @@ class HFRollout(BaseRollout):
         position_ids = torch.cat([position_ids, response_position_ids], dim=-1)
 
         response_attention_mask = get_eos_mask(response_id=response, eos_token=eos_token_id, dtype=attention_mask.dtype)
-        response_attention_mask[..., -delta_length:] = 0
+        if delta_length > 0:
+            response_attention_mask[..., -delta_length:] = 0
         attention_mask = torch.cat((attention_mask, response_attention_mask), dim=-1)
 
         batch = TensorDict(
@@ -178,6 +200,8 @@ class HFRollout(BaseRollout):
                 'seq_img_mask': seq_img_mask
             },
             batch_size=batch_size)
+        if self.cot_generate:
+            batch['text_tokens'] = text_tokens
 
         # empty cache before compute old_log_prob
         torch.cuda.empty_cache()

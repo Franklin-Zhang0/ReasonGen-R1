@@ -45,8 +45,8 @@ class ImageGenerationRewardManager:
         gen_img = gen_img.to('cpu').numpy() if isinstance(gen_img, torch.Tensor) else gen_img
         step_dir = os.path.join(self.save_path, str(self.steps))
         os.makedirs(step_dir, exist_ok=True)
-        
-        with open(os.path.join(step_dir, "prompts.txt"), 'a') as f:
+        with open(os.path.join(step_dir, "texts.txt"), 'a') as f:
+            f.write("Prompts:\n")
             for i in range(min(len(gen_img), self.save_num)):
                 save_path = os.path.join(step_dir, "img_{}.jpg".format(i))
                 PIL.Image.fromarray(gen_img[i]).save(save_path)
@@ -54,9 +54,18 @@ class ImageGenerationRewardManager:
                 f.write(f'{self.tokenizer.decode(prompt, skip_special_tokens=True)}\n\n')
             
             if 'rm_text' in data.non_tensor_batch:
-                for i in range(min(len(gen_img), self.save_num), 2):
+                f.write("="*40 + "\n")
+                f.write("RM Text:\n")
+                for i in range(min(len(gen_img), self.save_num)):
                     rm_text = data.non_tensor_batch['rm_text'][i]
                     f.write(f'{rm_text}\n\n')
+            
+            if 'text_tokens' in data.batch:
+                f.write("="*40 + "\n")
+                f.write("Text Tokens:\n")
+                for i in range(min(len(gen_img), self.save_num)):
+                    text_tokens = data.batch['text_tokens'][i]
+                    f.write(f'{self.tokenizer.decode(text_tokens, skip_special_tokens=True)}\n\n')
 
     def __call__(self, data: DataProto):
         """We will expand this function gradually based on the available datasets"""

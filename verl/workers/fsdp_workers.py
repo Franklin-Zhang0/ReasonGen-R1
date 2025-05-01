@@ -536,6 +536,8 @@ class ActorRolloutRefWorker(Worker):
             'pad_token_id':
                 self.generation_config.pad_token_id
                 if self.generation_config is not None else self.tokenizer.pad_token_id,
+            'image_start_token_id':
+                self.processor.image_start_id
         }
         prompts.meta_info.update(meta_info)
         with self.rollout_sharding_manager:

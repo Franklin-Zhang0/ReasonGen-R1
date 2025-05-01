@@ -250,6 +250,8 @@ class JanusTextOnlyRLHFDataset(Dataset):
                  truncation='error',
                  filter_overlong_prompts=False,
                  system_prompt="",
+                 prompt_template=None,
+                 cot_generate=False,
                  ):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
@@ -268,6 +270,10 @@ class JanusTextOnlyRLHFDataset(Dataset):
         self.truncation = truncation
         self.filter_overlong_prompts = filter_overlong_prompts
         self.system_prompt = system_prompt
+        self.cot_generate = cot_generate
+        self.prompt_template = prompt_template
+        if self.prompt_template is None:
+            self.prompt_template = "A photo of {}."
         
         self.prompts = []
         for i, parquet_file in enumerate(parquet_files):
@@ -291,7 +297,7 @@ class JanusTextOnlyRLHFDataset(Dataset):
         chat = [
             {
                 "role": "<|User|>",
-                "content": f"A photo of {self.prompts[item]}",
+                "content": self.prompt_template.format(self.prompts[item]),
             },
             {"role": "<|Assistant|>", "content": ""},
         ]
@@ -301,7 +307,11 @@ class JanusTextOnlyRLHFDataset(Dataset):
             sft_format=self.processor.sft_format,
             system_prompt=self.system_prompt,
         )
-        prompt = sft_format + self.processor.image_start_tag
+        
+        if not self.cot_generate:
+            prompt = sft_format + self.processor.image_start_tag
+        else:
+            prompt = sft_format
         
         raw_prompt = prompt
 
