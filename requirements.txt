@@ -19,5 +19,6 @@ transformers
 # vllm==0.6.3.post1
 wandb
 pillow
-vllm
+vllm==0.8.2
+qwen_vl_utils
 mathruler
