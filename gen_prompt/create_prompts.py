@@ -43,7 +43,7 @@ def generate_single_object_sample(rng: np.random.Generator, size: int = None):
         include=[
             {"class": classnames[idx], "count": 1}
         ],
-        prompt=f"{with_article(classnames[idx])}"
+        prompt=f"a photo of {with_article(classnames[idx])}"
     ) for idx in idxs]
     if return_scalar:
         return samples[0]
@@ -60,7 +60,7 @@ def generate_two_object_sample(rng: np.random.Generator):
             {"class": classnames[idx_a], "count": 1},
             {"class": classnames[idx_b], "count": 1}
         ],
-        prompt=f"{with_article(classnames[idx_a])} and {with_article(classnames[idx_b])}"
+        prompt=f"a photo of {with_article(classnames[idx_a])} and {with_article(classnames[idx_b])}"
     )
 
 # Generate counting samples
@@ -79,12 +79,12 @@ def generate_counting_sample(rng: np.random.Generator, max_count=4):
         exclude=[
             {"class": classnames[idx], "count": num + 1}
         ],
-        prompt=f"{numbers[num]} {make_plural(classnames[idx])}"
+        prompt=f"a photo of {numbers[num]} {make_plural(classnames[idx])}"
     )
 
 # Generate color samples
 
-colors = ["red", "orange", "yellow", "green", "blue", "purple", "pink", "brown", "black", "white", "gray", "gold", "silver", "khaki"]
+colors = ["red", "orange", "yellow", "green", "blue", "purple", "pink", "brown", "black", "white"]
 
 def generate_color_sample(rng: np.random.Generator):
     TAG = "colors"
@@ -96,13 +96,12 @@ def generate_color_sample(rng: np.random.Generator):
         include=[
             {"class": classnames[idx], "count": 1, "color": color}
         ],
-        prompt=f"{with_article(color)} {classnames[idx]}"
+        prompt=f"a photo of {with_article(color)} {classnames[idx]}"
     )
 
 # Generate position samples
 
-positions = ["left of", "right of", "above", "below", "in front of", "behind", "on top of", "under", "next to", "beside", \
-    'on the left side of', 'on the right side of', 'on the top of', 'on the bottom of', 'to the left of', 'to the right of']
+positions = ["left of", "right of", "above", "below"]
 
 def generate_position_sample(rng: np.random.Generator):
     TAG = "position"
@@ -114,7 +113,7 @@ def generate_position_sample(rng: np.random.Generator):
             {"class": classnames[idx_b], "count": 1},
             {"class": classnames[idx_a], "count": 1, "position": (position, 0)}
         ],
-        prompt=f"{with_article(classnames[idx_a])} {position} {with_article(classnames[idx_b])}"
+        prompt=f"a photo of {with_article(classnames[idx_a])} {position} {with_article(classnames[idx_b])}"
     )
 
 # Generate color attribution samples
@@ -130,25 +129,7 @@ def generate_color_attribution_sample(rng: np.random.Generator):
             {"class": classnames[idx_a], "count": 1, "color": colors[cidx_a]},
             {"class": classnames[idx_b], "count": 1, "color": colors[cidx_b]}
         ],
-        prompt=f"{with_article(colors[cidx_a])} {classnames[idx_a]} and {with_article(colors[cidx_b])} {classnames[idx_b]}"
-    )
-    
-def generate_counting_attribution_sample(rng: np.random.Generator, max_count=4):
-    TAG = "counting_attr"
-    idx_a, idx_b = rng.choice(len(classnames), size=2, replace=False)
-    total_num = int(rng.integers(3, max_count, endpoint=True))
-    num_a = int(rng.integers(1, total_num-1, endpoint=True))
-    num_b = total_num - num_a
-    cls_a, cls_b = classnames[idx_a], classnames[idx_b]
-    cls_a = cls_a if num_a == 1 else make_plural(cls_a)
-    cls_b = cls_b if num_b == 1 else make_plural(cls_b)
-    return dict(
-        tag=TAG,
-        include=[
-            {"class": classnames[idx_a], "count": numbers[num_a]},
-            {"class": classnames[idx_b], "count": numbers[num_b]}
-        ],
-        prompt=f"{numbers[num_a]} {cls_a} and {numbers[num_b]} {cls_b}"
+        prompt=f"a photo of {with_article(colors[cidx_a])} {classnames[idx_a]} and {with_article(colors[cidx_b])} {classnames[idx_b]}"
     )
 
 
@@ -173,8 +154,6 @@ def generate_suite(rng: np.random.Generator, n: int = 100, output_path: str = ""
     # Generate color attribution samples
     for _ in range(n):
         samples.append(generate_color_attribution_sample(rng))
-    for _ in range(n):
-        samples.append(generate_counting_attribution_sample(rng, max_count=5))
     # De-duplicate
     unique_samples, used_samples = [], set()
     for sample in samples:
@@ -196,7 +175,7 @@ def generate_suite(rng: np.random.Generator, n: int = 100, output_path: str = ""
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--seed", type=int, default=43, help="generation seed (default: 43)")
-    parser.add_argument("--num-prompts", "-n", type=int, default=2000, help="number of prompts per task (default: 100)")
+    parser.add_argument("--num-prompts", "-n", type=int, default=100, help="number of prompts per task (default: 100)")
     parser.add_argument("--output-path", "-o", type=str, default="prompts", help="output folder for prompts and metadata (default: 'prompts/')")
     args = parser.parse_args()
     rng = np.random.default_rng(args.seed)
