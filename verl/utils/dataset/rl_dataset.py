@@ -382,6 +382,8 @@ class DummyJanusDPORLHFDataset(Dataset):
                  truncation='error',
                  filter_overlong_prompts=False,
                  system_prompt="",
+                 prompt_template=None,
+                 cot_generate=False,
                  ):
         if not isinstance(parquet_files, (List, ListConfig)):
             parquet_files = [parquet_files]
@@ -402,6 +404,8 @@ class DummyJanusDPORLHFDataset(Dataset):
         self.truncation = truncation
         self.filter_overlong_prompts = filter_overlong_prompts
         self.system_prompt = system_prompt
+        self.cot_generate = cot_generate
+        self.prompt_template = prompt_template
         self.dummy_prompts = [
             'One apple and two bananas on a plate',
             'A plate on the left of the cup',
@@ -434,7 +438,7 @@ class DummyJanusDPORLHFDataset(Dataset):
         chat = [
             {
                 "role": "<|User|>",
-                "content": f"A photo of {self.dummy_prompts[item%len(self.dummy_prompts)]}",
+                "content": self.prompt_template.format(self.prompts[item]),
             },
             {"role": "<|Assistant|>", "content": ""},
         ]
@@ -444,7 +448,10 @@ class DummyJanusDPORLHFDataset(Dataset):
             sft_format=self.processor.sft_format,
             system_prompt=self.system_prompt,
         )
-        prompt = sft_format + self.processor.image_start_tag
+        if not self.cot_generate:
+            prompt = sft_format + self.processor.image_start_tag
+        else:
+            prompt = sft_format
         
         raw_prompt = prompt
 
