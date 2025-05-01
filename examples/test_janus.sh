@@ -11,6 +11,18 @@ RUN_NAME="Janus_pro_7B-DPO-filter"
 PROJ_NAME="verl_janus_test"
 SAVE_DIR=/blob/franklin/ckpt/image_rl/$PROJ_NAME/$RUN_NAME
 TEMPLATE='A photo of {}. Generate a detailed description of how to create an image strictly based on the information in the caption. Do not add extra elements or creative interpretation beyond the raw caption. Pay close attention to all specific details in the caption—such as color, position, number, orientation, and object types. Your output should be a breakdown of how to create the image, suitable for guiding an image generation model. Please directly output the reasoning steps.'
+RM_TEMPLATE='You are given a textual prompt: \"{prompt}\"
+Below are two images generated from this prompt:
+<image>   <image>
+
+1. Identify the key visual elements described in the prompt.
+2. For each element, check whether it appears perfectly in Image 1 and in Image 2.
+3. If exactly one image matches the prompt perfectly, respond with \boxed{{1}} for Image 1 or \boxed{{2}} for Image 2.
+4. If no image matches all elements perfectly, or if both images match equally well, respond with \boxed{{-1}}.
+
+Provide your step-by-step reasoning first, then your final boxed answer. Only one number should appear inside the box.
+'
+
 export HYDRA_FULL_ERROR=1
 
 if [ "$RANK" -eq 0 ]; then
@@ -64,6 +76,7 @@ python3 -m verl.trainer.image_generation_rl \
     reward_model.reward_manager=image_generation \
     reward_model.model.path=$RM_MODEL_PATH \
     reward_model.micro_batch_size_per_gpu=16 \
+    'reward_model.template="'"$RM_TEMPLATE"'"' \
     img_saving.save_freq=5 \
     img_saving.num=16
     

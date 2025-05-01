@@ -438,7 +438,7 @@ class DummyJanusDPORLHFDataset(Dataset):
         chat = [
             {
                 "role": "<|User|>",
-                "content": self.prompt_template.format(self.prompts[item]),
+                "content": self.prompt_template.format(self.dummy_prompts[item%len(self.dummy_prompts)]),
             },
             {"role": "<|Assistant|>", "content": ""},
         ]
