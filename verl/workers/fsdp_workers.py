@@ -978,6 +978,7 @@ class RewardModelWorker(Worker):
 
         fsdp_size = self.config.model.fsdp_config.fsdp_size
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
+        self.template = self.config.template
 
         self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
@@ -1142,10 +1143,6 @@ class RewardModelWorker(Worker):
         return token_level_scores
 
     def _switch_chat_template(self, data: DataProto):
-        template = "Below are two images generated using the following prompt: {prompt}.\n <image> <image> \n"
-        template_postfix = r"Carefully examine the two images and determine which one better aligns with the given textual prompt. Begin by identifying the key elements described in the text and analyzing how each image corresponds to those elements. \
-            After your reasoning, provide your final judgment in the format: \boxed{1} or \boxed{2} — choose the image that best matches the prompt. If neither image is recognizable, relevant to the prompt, or if it is too difficult to tell which is better, respond with \boxed{-1}. Only one number should appear in the box."
-
         self.max_prompt_length = self.config.model.max_prompt_length
         
         uid_group = {}
@@ -1183,7 +1180,7 @@ class RewardModelWorker(Worker):
                 imgs.append(PIL.Image.fromarray(img.cpu().numpy()))
                 new_rank.append(idx)
             chat = [{'role': 'user', 
-                     'content': [{'type': 'text', 'text': template.format(prompt=prompt) + template_postfix}],
+                     'content': [{'type': 'text', 'text': self.template.format(prompt=prompt)}],
                     }]
             prompt_with_chat_template = self.processor.apply_chat_template(
                 chat, tokenize=False, add_generation_prompt=True

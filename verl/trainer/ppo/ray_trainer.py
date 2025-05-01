@@ -941,6 +941,7 @@ class RayPPOTrainer(object):
                             if num_prompt_in_batch < prompt_bsz:
                                 print(f'{num_prompt_in_batch=} < {prompt_bsz=}')
                                 max_num_gen_batches = self.config.algorithm.filter_groups.max_num_gen_batches
+                                num_gen_batches += 1
                                 if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
                                     print(f'{num_gen_batches=}. Keep generating...')
                                     continue
@@ -956,7 +957,6 @@ class RayPPOTrainer(object):
                                 # old_batch = old_batch[:traj_bsz]
                                 old_batch = old_batch.apply_mask(mask)
                                 batch = old_batch
-                                num_gen_batches += 1
 
                     
                     # recompute old_log_probs
