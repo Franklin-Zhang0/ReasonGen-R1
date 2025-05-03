@@ -569,6 +569,10 @@ class RayPPOTrainer(object):
             sample_outputs.extend(output_img_list)
 
             test_batch = test_batch.union(test_output_gen_batch)
+            
+            if self.config.reward_model.enable and not self.config.reward_model.paired:
+                reward_tensor = self.rm_wg.compute_rm_score(test_batch)
+                test_batch = test_batch.union(reward_tensor)
 
             # evaluate using reward_function
             reward_tensor = self.val_reward_fn(test_batch)

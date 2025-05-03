@@ -979,6 +979,7 @@ class RewardModelWorker(Worker):
         fsdp_size = self.config.model.fsdp_config.fsdp_size
         self.device_mesh = create_device_mesh(world_size=world_size, fsdp_size=fsdp_size)
         self.template = self.config.template
+        self.paired = self.config.paired
 
         self.ulysses_device_mesh = None
         self.ulysses_sequence_parallel_size = self.config.get('ulysses_sequence_parallel_size', 1)
@@ -1082,17 +1083,27 @@ class RewardModelWorker(Worker):
         self.reward_module = self._build_model(config=self.config)
         
     def get_score_from_output(self, output_text):
-        scores = torch.zeros(len(output_text)*2, device=self.device_mesh.device_type)  # two images for dpo
-        for i, text in enumerate(output_text):
-            better_idx = extract_boxed_content(text)
-            try:
-                if better_idx in ['1', '2']:
-                    better_idx = int(better_idx) - 1 # idx start from 1 in the text, minus 1 to make it start from 0
-                    scores[i*2 + better_idx] = 1.0
-                else:
+        if self.paired:
+            scores = torch.zeros(len(output_text)*2, device=self.device_mesh.device_type)  # two images for dpo
+            for i, text in enumerate(output_text):
+                better_idx = extract_boxed_content(text)
+                try:
+                    if better_idx in ['1', '2']:
+                        better_idx = int(better_idx) - 1 # idx start from 1 in the text, minus 1 to make it start from 0
+                        scores[i*2 + better_idx] = 1.0
+                    else:
+                        pass
+                except:
                     pass
-            except:
-                pass
+        else:
+            scores = torch.zeros(len(output_text), device=self.device_mesh.device_type)
+            for i, text in enumerate(output_text):
+                score = extract_boxed_content(text)
+                try:
+                    if score in ['1', '0']:
+                        scores[i] = float(score)
+                except:
+                    pass
         return scores
 
     def _forward_micro_batch(self, micro_batch):
@@ -1146,11 +1157,15 @@ class RewardModelWorker(Worker):
         self.max_prompt_length = self.config.model.max_prompt_length
         
         uid_group = {}
-        for i in range(data.batch.batch_size[0]):
-            uid = data.non_tensor_batch['uid'][i]
-            if uid not in uid_group:
-                uid_group[uid] = []
-            uid_group[uid].append(i)
+        if self.paired:
+            for i in range(data.batch.batch_size[0]):
+                uid = data.non_tensor_batch['uid'][i]
+                if uid not in uid_group:
+                    uid_group[uid] = []
+                uid_group[uid].append(i)
+        else:
+            uid_group = {i: [i] for i in range(data.batch.batch_size[0])} # dummy uid groupss
+            
             
             
         uids = []
@@ -1170,7 +1185,15 @@ class RewardModelWorker(Worker):
         new_rank = []
         
         for uid in uid_group:
-            indices = uid_group[uid]
+            if self.paired:
+                indices = uid_group[uid]
+            else: # uid is actually the index when not paired
+                indices = [uid]
+                if 'uid' in data.non_tensor_batch:
+                    uid = data.non_tensor_batch['uid'][uid]
+                else:
+                    uid = str(uid)
+                
             first_idx = indices[0]
             # extract raw prompt
             prompt = data.non_tensor_batch['raw_prompt'][first_idx][0]['content']
