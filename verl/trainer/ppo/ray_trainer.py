@@ -41,7 +41,7 @@ from verl.utils.seqlen_balancing import get_seqlen_balanced_partitions, log_seql
 from verl.utils.checkpoint.checkpoint_manager import find_latest_ckpt_path
 from verl.utils.dataset.rl_dataset import RLHFDataset, collate_fn, DummyJanusDPORLHFDataset, JanusTextOnlyRLHFDataset
 from verl.utils.tracking import ValidationGenerationsLogger
-from torch.utils.data import RandomSampler, SequentialSampler
+from torch.utils.data import RandomSampler, SequentialSampler, Subset
 from torchdata.stateful_dataloader import StatefulDataLoader
 import PIL
 import wandb
@@ -434,7 +434,7 @@ class RayPPOTrainer(object):
                                                    collate_fn=collate_fn,
                                                    sampler=sampler)
 
-        self.val_dataset = DummyJanusDPORLHFDataset(parquet_files=self.config.data.val_files,
+        self.val_dataset = JanusTextOnlyRLHFDataset(parquet_files=self.config.data.val_files,
                                        tokenizer=self.tokenizer,
                                        processor=self.processor,
                                        prompt_key=self.config.data.prompt_key,
@@ -450,6 +450,10 @@ class RayPPOTrainer(object):
         assert self.val_dataset.truncation == self.config.data.get(
             'truncation', 'error'
         ), f'dataset truncation {self.val_dataset.truncation} must be the same as config {self.config.data.get("truncation", "error")}'
+        subset_rng = np.random.RandomState(self.config.data.get('seed', 1))
+        sub_sample_indices = subset_rng.choice(len(self.val_dataset), size=self.config.data.num_val_samples, replace=False).tolist()
+        self.val_dataset = Subset(self.val_dataset, sub_sample_indices)
+        
         self.val_dataloader = StatefulDataLoader(
             dataset=self.val_dataset,
             # Validation datasets are sent to inference engines as a whole batch,

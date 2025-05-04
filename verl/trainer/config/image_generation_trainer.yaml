@@ -2,6 +2,7 @@ data:
   tokenizer: null
   train_files: ~/data/rlhf/gsm8k/train.parquet
   val_files: ~/data/rlhf/gsm8k/test.parquet
+  num_val_samples: 64
   prompt_key: prompt
   system_prompt: null
   max_prompt_length: 512
