@@ -33,6 +33,7 @@ from janus.models.clip_encoder import CLIPVisionTower
 from janus.models.projector import MlpProjector
 import numpy as np
 from torch.utils.checkpoint import checkpoint
+import torch.distributed as dist
 
 def checkpoint_wrapper(fn, gradient_checkpointing_kwargs):
     def wrapper(*args, **kwargs):
@@ -425,7 +426,9 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             ended = ended | (next_token == eos_token_id)
             ended = ended | (next_token == image_start_token_id)
             generated_length += 1
-            if ended.all():
+            local_ended = ended.all().to(torch.int)
+            dist.all_reduce(local_ended, op=dist.ReduceOp.MIN)
+            if local_ended == 1:
                 break
         
         generated_tokens = generated_tokens[:, :generated_length]
