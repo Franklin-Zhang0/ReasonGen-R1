@@ -567,6 +567,7 @@ class FSDPSFTTrainer(object):
 
     def validation_step(self, batch: TensorDict):
         self.fsdp_model.eval()
+        seperate_loss = {}
         with torch.no_grad():
             output = self._compute_loss_and_backward(batch, do_backward=False)
             loss = output['loss']
@@ -574,9 +575,14 @@ class FSDPSFTTrainer(object):
             if self.config.algorithm.use_kl_loss:
                 kl_loss = output['kl_loss']
                 torch.distributed.all_reduce(kl_loss, op=torch.distributed.ReduceOp.AVG)
+            for key in output['loss_dict'].keys():
+                seperate_loss[key] = output['loss_dict'][key]
+                torch.distributed.all_reduce(seperate_loss[key], op=torch.distributed.ReduceOp.AVG)
         log_dict = {
             'val/loss': loss,
         }
+        for key in output['loss_dict'].keys():
+            log_dict[f'val/{key}'] = seperate_loss[key]
         if self.config.algorithm.use_kl_loss:
             log_dict['val/kl_loss'] = kl_loss
         return log_dict
@@ -620,7 +626,18 @@ class FSDPSFTTrainer(object):
         print(f'Total training steps: {self.total_training_steps}')
 
         # TODO (zhangchi.usc1992) add back checkpoint manager. Currently, it blocks when uploading to hdfs. So very slow.
-
+        # validation
+        val_logs = []
+        for data in self.val_dataloader:
+            data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
+            val_log = self.validation_step(data)
+            val_logs.append(val_log)
+        if rank == 0:
+            for key in val_logs[0].keys():
+                val_metric = torch.mean(torch.stack([log[key] for log in val_logs]))
+                metric = {key: val_metric.detach().item()}
+                tracking.log(data=metric, step=self.global_step)
+        torch.distributed.barrier()
         for epoch in range(self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
             for data in tqdm(self.train_dataloader,
