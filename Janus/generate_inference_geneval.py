@@ -216,6 +216,8 @@ def generate_from_geneval_jsonl(
         if accelerator.num_processes > 1:
             ids = list(range(accelerator.process_index, len(lines), accelerator.num_processes))
             lines = lines[accelerator.process_index::accelerator.num_processes]
+        else:
+            ids = list(range(len(lines)))
 
     for idx, line in tqdm(zip(ids, lines), total=len(lines)):
         data = json.loads(line)
