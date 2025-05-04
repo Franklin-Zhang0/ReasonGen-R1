@@ -12,6 +12,7 @@ all_model_name_list=(
     "janus_image_only_dpo-eval_ds-0503-60"
     "janus_cot_dpo-0502-200"
      "image_only_grpo_4_rollout_40"
+    "100k_sample_short_7B_bs128_lr1e-5_image_only_1.0-0501_297"
     )
 
 model_name_list=(
@@ -23,8 +24,9 @@ model_name_list=(
     # "Janus_pro_7B-DPO-filter-16k_data-A_prompt_step_150"
     # "janus_image_only_dpo-0502_240"
     # "janus_image_only_dpo-eval_ds-0503-60"
-    "janus_cot_dpo-0502_200"
-    "image_only_grpo_4_rollout_40"
+    # "janus_cot_dpo-0502_200"
+    # "image_only_grpo_4_rollout_40"
+    "100k_sample_short_7B_bs128_lr1e-5_image_only_1.0-0501_297"
     )
 
 conda activate image_rl
@@ -33,6 +35,7 @@ for name in "${model_name_list[@]}"; do
     echo "Model: ${name}, inference start"
     echo ""
     accelerate launch $HOME_PATH/project/Image-RL/Janus/generate_inference_geneval.py --model_name="${name}"
+    CUDA_VISIBLE_DEVICES=0 python $HOME_PATH/project/Image-RL/geneval_out_result/geneval_inference.py --model_name="${name}"
     echo "Model: ${name}, inference end"
     echo ""
 done
