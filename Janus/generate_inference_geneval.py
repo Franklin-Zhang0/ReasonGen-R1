@@ -10,6 +10,8 @@ import tyro
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*?Your .*? set is empty.*?")
+from accelerate import Accelerator
+accelerator = Accelerator()
 
 
 # specify the path to the model
@@ -34,6 +36,7 @@ available_models={
         "use_cot": False
     },
     "janus_image_only_dpo-0502_240":{"model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/janus_image_only_dpo-0502/global_step_240/actor/huggingface","use_cot": False},
+    "janus_image_only_dpo-eval_ds-0503-60":{"model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/janus_image_only_dpo-eval_ds-0503/global_step_60/actor/huggingface","use_cot": False},
     
 }
 
@@ -48,7 +51,7 @@ def get_args():
     return tyro.cli(Args)
 args = get_args()
 model_name = args.model_name
-out_dir = f"geneval_out_result/geneval_output_{model_name}"
+out_dir = os.path.expanduser(f"~/project/Image-RL/geneval_out_result/geneval_output_{model_name}")
 model_path = available_models[model_name]["model_path"]
 use_cot = available_models[model_name]["use_cot"]
 
@@ -60,7 +63,7 @@ tokenizer = vl_chat_processor.tokenizer
 vl_gpt: MultiModalityCausalLM = AutoModelForCausalLM.from_pretrained(
     model_path, trust_remote_code=True
 )
-vl_gpt = vl_gpt.to(torch.bfloat16).cuda().eval()
+vl_gpt = vl_gpt.to(torch.bfloat16).eval().to(accelerator.device)
 
 cot_assistant = """
 1. Scene Layout:
@@ -207,11 +210,14 @@ def generate_from_geneval_jsonl(
         visual_img[:, :, :] = dec
         return visual_img
         
-
+    jsonl_path = os.path.expanduser(jsonl_path)
     with open(jsonl_path, "r") as f:
         lines = f.readlines()
+        if accelerator.num_processes > 1:
+            ids = list(range(accelerator.process_index, len(lines), accelerator.num_processes))
+            lines = lines[accelerator.process_index::accelerator.num_processes]
 
-    for idx, line in tqdm(enumerate(lines), total=len(lines)):
+    for idx, line in tqdm(zip(ids, lines), total=len(lines)):
         data = json.loads(line)
         text = data["prompt"]
         prompt = get_prompt(text, cot=cot)
@@ -239,7 +245,7 @@ def generate_from_geneval_jsonl(
         
 
 generate_from_geneval_jsonl(
-    "/home/v-zhangyu3/project/geneval/prompts/evaluation_metadata.jsonl",
+    "~/project/geneval/prompts/evaluation_metadata.jsonl",
     vl_gpt,
     vl_chat_processor,
     # prompt,
