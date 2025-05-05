@@ -21,12 +21,12 @@ Below is one generated image:
 2. Identify key visual elements and instructions from the prompt.
 3. Evaluate how well the image follows the prompt:
    - Are all required elements present?
-   - Are counts, colors, and positions accurate?
+   - Are object counts, colors, and positions accurate?
 
 If the image matches the prompt perfectly, respond with: \\boxed{{1}}
 Otherwise, respond with: \\boxed{{0}}
 
-Give detailed reasoning before your final boxed answer. Only one number should appear inside the box.'
+Reason before your final boxed answer. Only one number should appear inside the box.'
 
 export HYDRA_FULL_ERROR=1
 
@@ -54,8 +54,9 @@ python3 -m verl.trainer.image_generation_rl \
     actor_rollout_ref.model.enable_gradient_checkpointing=True \
     actor_rollout_ref.actor.fsdp_config.param_offload=True \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=True \
+    actor_rollout_ref.actor.fsdp_config.wrap_policy.min_num_params=100000000 \
     actor_rollout_ref.rollout.log_prob_micro_batch_size_per_gpu=2 \
-    actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
+    actor_rollout_ref.rollout.tensor_model_parallel_size=2 \
     actor_rollout_ref.rollout.name=hf \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.6 \
     actor_rollout_ref.rollout.n=4 \
@@ -65,17 +66,19 @@ python3 -m verl.trainer.image_generation_rl \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.rollout.cot_generate=False \
-    algorithm.kl_ctrl.kl_coef=0.001 \
-    algorithm.filter_groups.enable=False \
+    algorithm.kl_ctrl.kl_coef=0.000 \
+    algorithm.filter_groups.enable=True \
+    algorithm.filter_groups.max_num_gen_batches=8 \
     trainer.critic_warmup=0 \
     trainer.logger=['console'] \
     trainer.project_name=$PROJ_NAME \
     trainer.experiment_name=$RUN_NAME \
-    trainer.n_gpus_per_node=1 \
+    trainer.n_gpus_per_node=$GPUS \
     trainer.nnodes=1 \
     trainer.save_freq=20 \
     trainer.test_freq=5 \
-    trainer.total_epochs=15 \
+    trainer.total_epochs=5 \
+    trainer.max_steps=200 \
     trainer.resume_mode=disable \
     trainer.default_local_dir=$SAVE_DIR \
     reward_model.reward_manager=image_generation \

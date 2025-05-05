@@ -240,6 +240,7 @@ algorithm:
 trainer:
   balance_batch: False
   total_epochs: 30
+  max_steps: 200
   total_training_steps: null
   project_name: verl_examples
   experiment_name: gsm8k

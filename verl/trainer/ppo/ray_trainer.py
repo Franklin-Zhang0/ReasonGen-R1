@@ -478,6 +478,7 @@ class RayPPOTrainer(object):
             total_training_steps = self.config.trainer.total_training_steps
 
         self.total_training_steps = total_training_steps
+        self.total_training_steps = min(self.total_training_steps, self.config.trainer.max_steps)
         print(f'Total training steps: {self.total_training_steps}')
 
         OmegaConf.set_struct(self.config, True)
