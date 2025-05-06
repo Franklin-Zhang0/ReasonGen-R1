@@ -1203,7 +1203,7 @@ class RewardModelWorker(Worker):
                 imgs.append(PIL.Image.fromarray(img.cpu().numpy()))
                 new_rank.append(idx)
             chat = [{'role': 'user', 
-                     'content': [{'type': 'text', 'text': self.template.format(prompt=prompt)}],
+                     'content': [{'type': 'text', 'text': self.template.format(prompt=prompt.replace("A photo of ",""))}],
                     }]
             prompt_with_chat_template = self.processor.apply_chat_template(
                 chat, tokenize=False, add_generation_prompt=True
