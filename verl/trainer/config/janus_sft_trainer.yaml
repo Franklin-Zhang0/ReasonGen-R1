@@ -10,6 +10,8 @@ data:
   truncation: error
   balance_dp_token: False
   chat_template: null
+  prompt_augmentation: null
+
 model:
   partial_pretrain: deepseek-ai/Janus-Pro-7B
   fsdp_config:

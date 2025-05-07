@@ -15,6 +15,7 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     data.response_key=sft_prompt \
     data.max_length=1792 \
     data.micro_batch_size_per_gpu=4 \
+    data.prompt_augmentation="[short_caption,paraphrases,tags,varied_captions,object_prompts]" \
     'data.chat_template="'"$TEMPLATE"'"' \
     model.partial_pretrain=deepseek-ai/Janus-Pro-7B \
     model.enable_gradient_checkpointing=True \

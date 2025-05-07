@@ -34,6 +34,7 @@ import numpy as np
 from datasets import load_from_disk, concatenate_datasets
 import io
 import base64
+import random
 
 
 class SFTDataset(Dataset):
@@ -389,7 +390,10 @@ class HFSFTDataset(Dataset):
                  image_key='image',
                  max_length=1024,
                  truncation='error',
-                 template=""):
+                 template="",
+                 prompt_augmentation: List[str]=None, # augment prompt key here
+                 prompt_dropout: float=0.0,
+                 ):
         assert truncation in ['error', 'left', 'right']
         self.truncation = truncation
         
@@ -424,6 +428,8 @@ class HFSFTDataset(Dataset):
         self.template = template
         self.image_token_num_per_image = 576
         self.img_size = 384   
+        self.prompt_augmentation = prompt_augmentation
+        self.prompt_dropout = prompt_dropout
         # self.dataset = self.dataset.filter(lambda x: x[self.cot_key] != "")
         
     def __len__(self):
@@ -461,7 +467,13 @@ class HFSFTDataset(Dataset):
         image = data[self.image_key]
         # pil to np array
         image = preprocess_img(image, processing=self.image_processing)
-
+        
+        if self.prompt_augmentation is not None:
+            prompt = prompt_augmentation(data, self.prompt_augmentation)
+        
+        # make the first letter small letter
+        prompt = prompt[0].lower() + prompt[1:]
+        
         # apply chat template
         prompt_chat = [
             {'role': "<|User|>", 'content': self.template.format(prompt)},
@@ -515,3 +527,32 @@ class HFSFTDataset(Dataset):
             'input_img_mask': img_mask,
             'pixel_values': image
         }
+        
+        
+def prompt_augmentation(data, keys):
+    num_augmentations = len(keys)
+    selected_key_idx = random.randint(0, num_augmentations - 1)
+    selected_key = keys[selected_key_idx]
+    if selected_key == 'longIB_captions':
+        return data[selected_key]
+    elif selected_key == 'short_caption':
+        return data['augmented_prompts'][selected_key]
+    elif selected_key in ['paraphrases', 'varied_captions']:
+        prompts = data['augmented_prompts'][selected_key]
+        if type(prompts) == str: # legacy
+            prompts = eval(prompts)
+        selected_idx = random.randint(0, len(prompts) - 1)
+        return prompts[selected_idx]
+    elif selected_key == 'tags':
+        shuffled_tags:list[str] = data['augmented_prompts'][selected_key]
+        return ",".join(shuffled_tags)
+    elif selected_key == 'object_prompts':
+        num_objects = len(data['augmented_prompts'][selected_key])
+        selected_num_objects = random.randint(1, num_objects)
+        objects = data['augmented_prompts'][selected_key][:selected_num_objects]
+        return " and ".join(objects)
+    else:
+        raise NotImplementedError(f'Unknown augmentation key {selected_key}')
+
+    
+    

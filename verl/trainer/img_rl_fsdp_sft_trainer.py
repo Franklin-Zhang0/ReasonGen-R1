@@ -147,6 +147,8 @@ class FSDPSFTTrainer(object):
                                         max_length=config.data.max_length,
                                         truncation=config.data.truncation,
                                         template=config.data.chat_template,
+                                        prompt_augmentation=config.data.get('prompt_augmentation', None),
+                                        prompt_dropout=config.data.get('prompt_dropout', None),
                                         )
         self.val_dataset = HFSFTDataset(parquet_files=config.data.val_files,
                                       tokenizer=self.tokenizer,
@@ -158,6 +160,7 @@ class FSDPSFTTrainer(object):
                                       max_length=config.data.max_length,
                                       truncation=config.data.truncation,
                                       template=config.data.chat_template,
+                                      prompt_augmentation=config.data.get('prompt_augmentation', None),
                                       )
 
         # build dataloader
