@@ -19,8 +19,8 @@ accelerator = Accelerator()
 available_models={
     "Janus-Pro-7B": {"model_path": "deepseek-ai/Janus-Pro-7B", "use_cot": False},
     "Janus-Pro-7B-cot": {"model_path": "deepseek-ai/Janus-Pro-7B", "use_cot": True},
-    "100k_sample_7B_bs128_lr2e-6_image_1.0_text_0.1_0429":{
-        "model_path": "/blob/franklin/ckpt/image_rl/janus_sft/100k_sample/100k_sample_7B_bs128_lr2e-6_image_1.0_text_0.1_0429/global_step_324",
+    "100k_sample_7B_bs128_lr2e-6_image_1.0_text_0.1_0429_324":{
+        "model_path": "/blob/franklin/ckpt/image_rl/janus_sft/100k_sample/100k_sample_7B_bs128_lr2e-6_image_1.0_text_0.1_0429/global_step_324/",
         "use_cot": True
     },
     "100k_sample_short_7B_bs128_lr2e-6_image_only_1.0_0429":{
@@ -36,9 +36,60 @@ available_models={
         "use_cot": False
     },
     "janus_image_only_dpo-0502_240":{"model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/janus_image_only_dpo-0502/global_step_240/actor/huggingface","use_cot": False},
-    "janus_image_only_dpo-eval_ds-0503-60":{"model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/janus_image_only_dpo-eval_ds-0503/global_step_60/actor/huggingface","use_cot": False},
-    
+    "janus_image_only_dpo-eval_ds-0503_60":{"model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/janus_image_only_dpo-eval_ds-0503/global_step_60/actor/huggingface","use_cot": False},
+    "janus_cot_dpo-0502_200":{
+        "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/janus_cot_dpo-0502/global_step_200/actor/huggingface",
+        "use_cot": True
+    },
+    "image_only_grpo_4_rollout_40": {
+        "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_4_rollout/global_step_40/actor/huggingface",
+        "use_cot": False
+    },
+    "100k_sample_short_7B_bs128_lr1e-5_image_only_1.0-0501_297":{
+        "model_path":"/blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only_1.0-0501/global_step_297/",
+        "use_cot": True
+    },
+    "verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_180":{
+        "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of/global_step_180/actor/huggingface",
+        "use_cot": False
+    },
+    "verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_100":{
+        "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of/global_step_100/actor/huggingface",
+        "use_cot": False
+    },
+    "image_only_grpo_8_rollout_kl_0.001_cfg_2.0_no_detach_140":{
+        "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_kl_0.001_cfg_2.0_no_detach/global_step_140/actor/huggingface"
+        ,"use_cot": False
+    },
+    "verl_janus_test/image_only_grpo_8_rollout_kl_0.001_cfg_1.0_no_detach_no_a_photo_of_200":{
+        "model_path":"/blob/franklin/ckpt/image_rl\\verl_janus_test/image_only_grpo_8_rollout_kl_0.001_cfg_1.0_no_detach_no_a_photo_of/global_step_200/actor/huggingface",
+        "use_cot": False
+    }
 }
+
+all_new_models_path = "/blob/franklin/ckpt/image_rl/janus_sft/"
+name_list = ["100k_sample_short", "100k_sample","23k_sample","200k_sample_short"]
+for name in name_list:
+    models_list = os.listdir(os.path.join(all_new_models_path, name))
+    for model in models_list:
+        steps_list = os.listdir(os.path.join(all_new_models_path, name, model))
+        steps = [int(step.split("_")[-1]) for step in steps_list if step.startswith("global_step_")]
+        steps.sort()
+        max_step = steps[-1]
+        model_path = os.path.join(all_new_models_path, name, model, f"global_step_{max_step}/")
+        model_name = f"{model}_{max_step}"
+        if model_name in available_models:
+            if available_models[model_name]["model_path"] != model_path:
+                print(f"Model name conflict: {model_name}")
+                print("now model path is: ", model_path)
+                exit(1)
+            assert available_models[model_name]["use_cot"] == True
+        available_models[model_name] = {
+            "model_path": model_path,
+            "use_cot": True
+        }
+        # print(f"\"{model_name}\"")
+
 
 # get tyro arguments
 def get_args():
@@ -95,6 +146,7 @@ cot_assistant = """
 template = "A photo of {}. Generate a detailed description of how to create an image strictly based on the information in the caption. Do not add extra elements or creative interpretation beyond the raw caption. Pay close attention to all specific details in the caption—such as color, position, number, orientation, and object types. Your output should be a breakdown of how to create the image, suitable for guiding an image generation model. Please directly output the reasoning steps."
 
 def get_prompt(text, cot = False):
+    text = text.replace("A photo of", "").replace("a photo of", "").strip() # avoid redundant a photo of
     if cot:
         conversation = [
             {
@@ -107,7 +159,7 @@ def get_prompt(text, cot = False):
         conversation = [
             {
                 "role": "<|User|>",
-                "content": text,
+                "content": "A photo of {}".format(text),
             },
             {"role": "<|Assistant|>", "content": ""},
         ]
@@ -214,8 +266,8 @@ def generate_from_geneval_jsonl(
     with open(jsonl_path, "r") as f:
         lines = f.readlines()
         if accelerator.num_processes > 1:
-            ids = list(range(accelerator.process_index, len(lines), accelerator.num_processes))
-            lines = lines[accelerator.process_index::accelerator.num_processes]
+            ids = list(range(accelerator.process_index, len(lines)//accelerator.num_processes*accelerator.num_processes, accelerator.num_processes))
+            lines = lines[accelerator.process_index:len(lines)//accelerator.num_processes*accelerator.num_processes:accelerator.num_processes]
         else:
             ids = list(range(len(lines)))
 
@@ -228,7 +280,9 @@ def generate_from_geneval_jsonl(
         meta_data_path = os.path.join(this_out_dir, "metadata.jsonl")
         sample_out_dir = os.path.join(this_out_dir, "samples")
         if os.path.exists(sample_out_dir):
-            continue
+            png_list = os.listdir(sample_out_dir)
+            if len(png_list) == parallel_size:
+                continue
         with open(os.path.join(meta_data_path), "w") as f:
             f.write(json.dumps(data))
         if cot:
@@ -244,13 +298,14 @@ def generate_from_geneval_jsonl(
         for i in range(parallel_size):
             save_path = os.path.join(sample_out_dir, f"{i:04d}.png")
             PIL.Image.fromarray(visual_img[i]).save(save_path)
-        
 
-generate_from_geneval_jsonl(
-    "~/project/geneval/prompts/evaluation_metadata.jsonl",
-    vl_gpt,
-    vl_chat_processor,
-    # prompt,
-    out_dir,
-    cot=use_cot
-)
+
+if __name__ == "__main__":
+    generate_from_geneval_jsonl(
+        "~/project/geneval/prompts/evaluation_metadata.jsonl",
+        vl_gpt,
+        vl_chat_processor,
+        # prompt,
+        out_dir,
+        cot=use_cot
+    )
