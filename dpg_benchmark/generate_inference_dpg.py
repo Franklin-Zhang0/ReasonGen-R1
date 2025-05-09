@@ -66,7 +66,7 @@ available_models={
         "use_cot": False
     },
     "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_3_ds_400":{
-        "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_3_ds/global_step_400/actor/hugging_face",
+        "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_3_ds/global_step_400/actor/huggingface",
         "use_cot": False
     },
 }

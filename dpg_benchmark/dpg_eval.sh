@@ -67,12 +67,14 @@ model_name_list=(
     # "200k_sample_short_7B_bs128_lr2e-5_image_1.0_text_0.2-0506_1660"
     # "200k_sample_short_7B_bs128_lr2e-5_image_1.0_text_0.2-0506_3320"
 
-
-
     # "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_180"
     # "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_100"
 
+
     "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_3_ds_400"
+
+
+
     # "image_only_grpo_8_rollout_kl_0.001_cfg_2.0_no_detach_140"
     # "image_only_grpo_8_rollout_kl_0.001_cfg_1.0_no_detach_no_a_photo_of_200"
 
@@ -102,15 +104,17 @@ for name in "${model_name_list[@]}"; do
     echo ""
 done
 
-conda activate dpg
+conda activate dpg_test
 for name in "${model_name_list[@]}"; do
     echo ""
     echo "Model: ${name}, evaluation start"
     echo ""    
-    accelerate launch --num_machines 1 --num_processes 8 --multi_gpu --mixed_precision "fp16" --main_process_port $DPG_PORT \
-    ./compute_dpg_bench.py \
+    mkdir -p "/blob/franklin/expdata/dpg_out_result/${name}"
+    accelerate launch --num_machines 1 --num_processes 8 --multi_gpu --mixed_precision "fp16" \
+    $HOME_PATH/project/ELLA/dpg_bench/compute_dpg_bench.py \
     --image-root-path "$HOME_PATH/project/Image-RL/dpg_benchmark/dpg_result/${name}/generated_images" \
-    --res-path "$HOME_PATH/project/Image-RL/dpg_benchmark/dpg_result/${name}/eval_result.txt" \
+    --res-path "/blob/franklin/expdata/dpg_out_result/${name}/eval_result.txt" \
+    --csv "$HOME_PATH/project/ELLA/dpg_bench/dpg_bench.csv" \
     --resolution 384 \
     --pic-num 4 \
     --vqa-model mplug
