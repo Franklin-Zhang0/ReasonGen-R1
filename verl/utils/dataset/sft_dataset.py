@@ -393,6 +393,7 @@ class HFSFTDataset(Dataset):
                  template="",
                  prompt_augmentation: List[str]=None, # augment prompt key here
                  prompt_dropout: float=0.0,
+                 two_stage: bool=False,
                  ):
         assert truncation in ['error', 'left', 'right']
         self.truncation = truncation
@@ -430,6 +431,7 @@ class HFSFTDataset(Dataset):
         self.img_size = 384   
         self.prompt_augmentation = prompt_augmentation
         self.prompt_dropout = prompt_dropout
+        self.two_stage = two_stage
         # self.dataset = self.dataset.filter(lambda x: x[self.cot_key] != "")
         
     def __len__(self):
@@ -483,9 +485,19 @@ class HFSFTDataset(Dataset):
             {'role': "<|Assistant|>", 'content': ""}
             ]
         # string
-        prompt_chat_str = self.processor.apply_sft_template_for_multi_turn_prompts(prompt_chat, sft_format=self.processor.sft_format, system_prompt="")
+        prompt_chat_str = self.processor.apply_sft_template_for_multi_turn_prompts(prompt_chat, sft_format=self.processor.sft_format, system_prompt="" if not self.two_stage else "You are a helpful assistant. Given a short prompt, generate a richly detailed image description suitable for guiding an image generation model, including objects, setting, spatail relationship, mood, and visual details.")
         response_chat_str = response #+ self.processor.image_start_tag
-
+        
+        if self.two_stage:
+            cot_as_prompt_chat = [
+                {'role': "<|User|>", 'content': self.template.format(prompt)+response},
+                {'role': "<|Assistant|>", 'content': ""}
+                ]
+            cot_as_prompt_chat_str = self.processor.apply_sft_template_for_multi_turn_prompts(cot_as_prompt_chat, sft_format=self.processor.sft_format, system_prompt="")
+            cot_as_prompt_ids_output = self.tokenizer(cot_as_prompt_chat_str, return_tensors='pt', add_special_tokens=False)
+            cot_as_prompt_ids = cot_as_prompt_ids_output['input_ids'][0]
+            cot_as_prompt_attention_mask = cot_as_prompt_ids_output['attention_mask'][0]
+        
         # tokenize
         prompt_ids_output = self.tokenizer(prompt_chat_str, return_tensors='pt', add_special_tokens=False)
         prompt_ids = prompt_ids_output['input_ids'][0]
@@ -496,47 +508,108 @@ class HFSFTDataset(Dataset):
         response_attention_mask = response_ids_output['attention_mask'][0]
         
         to_drop_prompt = random.random() < self.prompt_dropout
-        if to_drop_prompt: # replace prompt with padding, attention mask = 0
-            prompt_ids = torch.ones_like(prompt_ids, dtype=torch.long) * self.tokenizer.pad_token_id
-            prompt_attention_mask = torch.zeros_like(prompt_attention_mask, dtype=torch.bool)
-            response_ids = torch.ones_like(response_ids, dtype=torch.long) * self.tokenizer.pad_token_id
-            response_attention_mask = torch.zeros_like(response_attention_mask, dtype=torch.bool)
         
-        img_indices = [len(response_ids)]
-        response_ids = self.processor.add_image_token(input_ids = response_ids, image_indices=img_indices)[0]
-        response_attention_mask = torch.cat((response_attention_mask, torch.ones((len(response_ids) - len(response_attention_mask)))), dim=0)
+        if not self.two_stage:
+            if to_drop_prompt: # replace prompt with padding, attention mask = 0
+                prompt_ids = torch.ones_like(prompt_ids, dtype=torch.long) * self.tokenizer.pad_token_id
+                prompt_attention_mask = torch.zeros_like(prompt_attention_mask, dtype=torch.bool)
+                response_ids = torch.ones_like(response_ids, dtype=torch.long) * self.tokenizer.pad_token_id
+                response_attention_mask = torch.zeros_like(response_attention_mask, dtype=torch.bool)
+            
+            img_indices = [len(response_ids)]
+            
+            response_ids = self.processor.add_image_token(input_ids = response_ids, image_indices=img_indices)[0]
+            response_attention_mask = torch.cat((response_attention_mask, torch.ones((len(response_ids) - len(response_attention_mask)))), dim=0)
         
-        # add bos and eos token
-        prompt_length = prompt_ids.shape[0] + 1
-        response_length = response_ids.shape[0] + 1
-        
-        one = torch.ones((1,), dtype=torch.long)
-        true = torch.ones((1,), dtype=torch.bool)
+            # add bos and eos token
+            prompt_length = prompt_ids.shape[0] + 1
+            response_length = response_ids.shape[0] + 1
+            
+            one = torch.ones((1,), dtype=torch.long)
+            true = torch.ones((1,), dtype=torch.bool)
 
-        input_ids = torch.cat((self.tokenizer.bos_token_id * one, prompt_ids, response_ids, self.tokenizer.eos_token_id * one), dim=-1)
-        attention_mask = torch.cat((true, prompt_attention_mask, response_attention_mask, true), dim=-1)
-        
-        input_ids, attention_mask = self.pad_to_max_length(input_ids, attention_mask)
+            input_ids = torch.cat((self.tokenizer.bos_token_id * one, prompt_ids, response_ids, self.tokenizer.eos_token_id * one), dim=-1)
+            attention_mask = torch.cat((true, prompt_attention_mask, response_attention_mask, true), dim=-1)
+            
+            input_ids, attention_mask = self.pad_to_max_length(input_ids, attention_mask)
 
-        position_ids = compute_position_id_with_mask(attention_mask)
-        img_mask = torch.zeros_like(attention_mask, dtype=torch.bool)
-        img_mask[input_ids == self.processor.image_id] = True
+            position_ids = compute_position_id_with_mask(attention_mask)
+            img_mask = torch.zeros_like(attention_mask, dtype=torch.bool)
+            img_mask[input_ids == self.processor.image_id] = True
 
-        loss_mask = attention_mask.clone()
-        if prompt_length > 1:
-            # mask out prompt for SFT.
-            loss_mask[:min(prompt_length, loss_mask.size(0)) - 1] = 0
-        # mask out the last token in response
-        loss_mask[min(prompt_length + response_length, loss_mask.size(0)) - 1] = 0
+            loss_mask = attention_mask.clone()
+            if prompt_length > 1:
+                # mask out prompt for SFT.
+                loss_mask[:min(prompt_length, loss_mask.size(0)) - 1] = 0
+            # mask out the last token in response
+            loss_mask[min(prompt_length + response_length, loss_mask.size(0)) - 1] = 0
 
-        return {
-            'input_ids': input_ids,
-            'attention_mask': attention_mask,
-            'position_ids': position_ids,
-            'loss_mask': loss_mask,
-            'input_img_mask': img_mask,
-            'pixel_values': image
-        }
+            return {
+                'input_ids': input_ids,
+                'attention_mask': attention_mask,
+                'position_ids': position_ids,
+                'loss_mask': loss_mask,
+                'input_img_mask': img_mask,
+                'pixel_values': image
+            }
+            
+        else: # seperate text and image training
+            # text inputs
+            text_input_ids = torch.cat((self.tokenizer.bos_token_id * torch.ones((1,), dtype=torch.long), prompt_ids, response_ids, self.tokenizer.eos_token_id * torch.ones((1,), dtype=torch.long)), dim=-1)
+            text_attention_mask = torch.cat((torch.ones((1,), dtype=torch.bool), prompt_attention_mask, response_attention_mask, torch.ones((1,), dtype=torch.bool)), dim=-1)
+            text_input_ids, text_attention_mask = self.pad_to_max_length(text_input_ids, text_attention_mask)
+            text_position_ids = compute_position_id_with_mask(text_attention_mask)
+            text_loss_mask = text_attention_mask.clone()
+            prompt_length = prompt_ids.shape[0] + 1
+            response_length = response_ids.shape[0] + 1
+            if prompt_length > 1:
+                # mask out prompt for SFT.
+                text_loss_mask[:min(prompt_length, text_loss_mask.size(0)) - 1] = 0
+            text_loss_mask[min(prompt_length + response_length, text_loss_mask.size(0)) - 1] = 0
+            
+            # image inputs, treat the cot as prompt
+            if to_drop_prompt: # replace prompt with padding, attention mask = 0
+                cot_as_prompt_ids = torch.ones_like(cot_as_prompt_ids, dtype=torch.long) * self.tokenizer.pad_token_id
+                cot_as_prompt_attention_mask = torch.zeros_like(cot_as_prompt_attention_mask, dtype=torch.bool)
+            img_indices = [len(cot_as_prompt_ids)]
+            cot_as_prompt_ids = self.processor.add_image_token(input_ids = cot_as_prompt_ids, image_indices=img_indices)[0]
+            cot_as_prompt_attention_mask = torch.cat((cot_as_prompt_attention_mask, torch.ones((len(cot_as_prompt_ids) - len(cot_as_prompt_attention_mask)))), dim=0)
+            
+            img_input_ids = torch.cat((self.tokenizer.bos_token_id * torch.ones((1,), dtype=torch.long), cot_as_prompt_ids),  dim=-1)
+            img_attention_mask = torch.cat((torch.ones((1,), dtype=torch.bool), cot_as_prompt_attention_mask), dim=-1)
+
+            img_prompt_length = img_indices[0] + 1
+            img_response_length = len(img_input_ids) - img_prompt_length + 1
+            
+            
+            img_input_ids, img_attention_mask = self.pad_to_max_length(img_input_ids, img_attention_mask)
+            img_position_ids = compute_position_id_with_mask(img_attention_mask)
+            img_loss_mask = img_attention_mask.clone()
+            img_input_img_mask = torch.zeros_like(img_attention_mask, dtype=torch.bool)
+            img_input_img_mask[img_input_ids == self.processor.image_id] = True
+            if prompt_length > 1:
+                # mask out prompt for SFT.
+                img_loss_mask[:min(img_prompt_length, img_loss_mask.size(0)) - 1] = 0
+            img_loss_mask[min(img_prompt_length + img_response_length, img_loss_mask.size(0)) - 1] = 0
+            
+            return {
+                'text_input_ids': text_input_ids,
+                'text_attention_mask': text_attention_mask,
+                'text_position_ids': text_position_ids,
+                'text_loss_mask': text_loss_mask,
+                'img_input_ids': img_input_ids,
+                'img_attention_mask': img_attention_mask,
+                'img_position_ids': img_position_ids,
+                'img_loss_mask': img_loss_mask,
+                'img_input_img_mask': img_input_img_mask,
+                'pixel_values': image
+            }
+            
+                
+            
+            
+            
+            
         
         
 def prompt_augmentation(data, keys):

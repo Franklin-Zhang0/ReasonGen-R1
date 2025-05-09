@@ -536,6 +536,29 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         self.enable_gradient_checkpointing = True
         self.gradient_checkpointing_kwargs = gradient_checkpointing_kwargs
         print("Gradient checkpointing for llama backbone is enabled.")
+        
+    def text_only_forward(self, input_ids, attention_mask, position_ids):
+        """
+        Args:
+            input_ids (torch.LongTensor): [b, T]
+            attention_mask (torch.BoolTensor): [b, T]
+            position_ids (torch.LongTensor): [b, T]
+        Output:
+            output (AttrDict): {
+                text_logits (torch.FloatTensor): [b, T, V]
+                logits (torch.FloatTensor): [b, T, V]
+            }
+        """
+        inputs_embeds = self.language_model.get_input_embeddings()(input_ids)
+        outputs = self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=attention_mask, position_ids=position_ids)
+        hidden_states = outputs.last_hidden_state
+        text_logits = self.language_model.lm_head(hidden_states)
+        
+        output = AttrDict(
+            text_logits=text_logits,
+            logits=text_logits
+        )
+        return output
     
     def forward(self, 
                 input_ids, 
@@ -565,6 +588,8 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                 logits (torch.FloatTensor): [b, T, V]
             }
         """
+        if input_img_mask is None:
+            return self.text_only_forward(input_ids, attention_mask, position_ids)
         
         parallel_size = input_ids.shape[0]
         if cfg_weight == 1.0:

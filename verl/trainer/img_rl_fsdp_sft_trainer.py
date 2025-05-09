@@ -149,6 +149,7 @@ class FSDPSFTTrainer(object):
                                         template=config.data.chat_template,
                                         prompt_augmentation=config.data.get('prompt_augmentation', None),
                                         prompt_dropout=config.data.get('prompt_dropout', 0.0),
+                                        two_stage=config.algorithm.get('two_stage', False),
                                         )
         self.val_dataset = HFSFTDataset(parquet_files=config.data.val_files,
                                       tokenizer=self.tokenizer,
@@ -161,6 +162,7 @@ class FSDPSFTTrainer(object):
                                       truncation=config.data.truncation,
                                       template=config.data.chat_template,
                                       prompt_augmentation=config.data.get('prompt_augmentation', None),
+                                      two_stage=config.algorithm.get('two_stage', False)
                                       )
 
         # build dataloader
@@ -365,55 +367,130 @@ class FSDPSFTTrainer(object):
         use_sp = self.use_remove_padding and self.config.ulysses_sequence_parallel_size > 1
         device = torch.device(f"cuda:{self.device_mesh.get_rank()}")
         # Move inputs to GPU and prepare loss mask
-        input_ids = batch['input_ids'].to(device)
-        attention_mask = batch['attention_mask'].to(device)
-        position_ids = batch['position_ids'].to(device)
-        input_img_mask = batch['input_img_mask'].to(device)
-        loss_mask = batch.pop('loss_mask')[:, :-1].reshape(-1).to(device)
-        pixel_values = batch.pop('pixel_values').to(device)
+        if not self.config.algorithm.get('two_stage', False):
+            input_ids = batch['input_ids'].to(device)
+            attention_mask = batch['attention_mask'].to(device)
+            position_ids = batch['position_ids'].to(device)
+            input_img_mask = batch['input_img_mask'].to(device)
+            loss_mask = batch.pop('loss_mask')[:, :-1].reshape(-1).to(device)
+            pixel_values = batch.pop('pixel_values').to(device)
+        else:
+            text_input_ids = batch['text_input_ids'].to(device)
+            text_attention_mask = batch['text_attention_mask'].to(device)
+            text_position_ids = batch['text_position_ids'].to(device)
+            text_loss_mask = batch.pop('text_loss_mask')[:, :-1].reshape(-1).to(device)
+            img_input_ids = batch['img_input_ids'].to(device)
+            img_attention_mask = batch['img_attention_mask'].to(device)
+            img_position_ids = batch['img_position_ids'].to(device)
+            img_loss_mask = batch.pop('img_loss_mask')[:, :-1].reshape(-1).to(device)
+            img_input_img_mask = batch['img_input_img_mask'].to(device)
+            pixel_values = batch.pop('pixel_values').to(device)
+            
         loss_fct = nn.CrossEntropyLoss(reduction='none')
         with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
             with torch.no_grad():
                 self.vq_mudule = self.vq_mudule.to(device)
                 img_code = self.vq_mudule.encode(pixel_values)[2][2]
                         
-            input_ids[input_img_mask] = img_code
+            if self.config.algorithm.get('two_stage', False):
+                img_input_ids[img_input_img_mask] = img_code
+            else:
+                input_ids[input_img_mask] = img_code
         # Context manager for sequence parallel if needed
         context = self.sharding_manager if use_sp else nullcontext()
         with context:
             with torch.autocast(device_type='cuda', dtype=torch.bfloat16):
                 if not use_sp:
                     # Standard forward pass without sequence parallel
-                    labels = input_ids[:, 1:].contiguous()
-                    img_mask = input_img_mask[:, 1:].contiguous()
-                    img_start_token_mask = labels == self.image_start_token_id
-                    text_mask = ~img_mask & ~img_start_token_mask
-                    mask_dict = {
-                        'image': img_mask,
-                        'text': text_mask,
-                        'image_start_token': img_start_token_mask
-                    }
-                    output = self.fsdp_model(input_ids=input_ids,
-                                             attention_mask=attention_mask,
-                                             position_ids=position_ids,
-                                             input_img_mask=input_img_mask,
-                                             bos_token_id=self.bos_token_id,
-                                             pad_token_id=self.pad_token_id,
-                                             image_start_token_id=self.image_start_token_id,
-                                             cfg_weight=1.0,
-                                             use_cache=False)
-                    logits = output['logits'] if isinstance(output, dict) else output.logits
+                    if not self.config.algorithm.get('two_stage', False):
+                        labels = input_ids[:, 1:].contiguous()
+                        img_mask = input_img_mask[:, 1:].contiguous()
+                        img_start_token_mask = labels == self.image_start_token_id
+                        text_mask = ~img_mask & ~img_start_token_mask
+                        mask_dict = {
+                            'image': img_mask,
+                            'text': text_mask,
+                            'image_start_token': img_start_token_mask
+                        }
+                        output = self.fsdp_model(input_ids=input_ids,
+                                                attention_mask=attention_mask,
+                                                position_ids=position_ids,
+                                                input_img_mask=input_img_mask,
+                                                bos_token_id=self.bos_token_id,
+                                                pad_token_id=self.pad_token_id,
+                                                image_start_token_id=self.image_start_token_id,
+                                                cfg_weight=1.0,
+                                                use_cache=False)
+                        logits = output['logits'] if isinstance(output, dict) else output.logits
 
-                    shift_logits = logits[..., :-1, :].contiguous()
-                    shift_labels = labels.contiguous()
-                    # Flatten the tokens
-                    shift_logits = shift_logits.view(shift_logits.size(0) * shift_logits.size(1), shift_logits.size(2))
-                    shift_labels = shift_labels.view(-1)
-                    # Enable model parallelism
-                    shift_labels = shift_labels.to(shift_logits.device)
-                    loss = loss_fct(shift_logits, shift_labels)
-                    loss = loss * loss_mask.to(loss.device)
-                    loss, loss_dict = self.apply_loss_scale(loss, mask_dict)
+                        shift_logits = logits[..., :-1, :].contiguous()
+                        shift_labels = labels.contiguous()
+                        # Flatten the tokens
+                        shift_logits = shift_logits.view(shift_logits.size(0) * shift_logits.size(1), shift_logits.size(2))
+                        shift_labels = shift_labels.view(-1)
+                        # Enable model parallelism
+                        shift_labels = shift_labels.to(shift_logits.device)
+                        loss = loss_fct(shift_logits, shift_labels)
+                        loss = loss * loss_mask.to(loss.device)
+                        loss, loss_dict = self.apply_loss_scale(loss, mask_dict)
+                    else:
+                        loss_scale = self.config.algorithm.loss_scale
+                        
+                        # two‐stage: first compute text loss
+                        text_labels = text_input_ids[:, 1:].contiguous()
+                        text_out = self.fsdp_model(
+                            input_ids=text_input_ids,
+                            attention_mask=text_attention_mask,
+                            position_ids=text_position_ids,
+                            input_img_mask=None,
+                            use_cache=False
+                        )
+                        text_logits = text_out['logits'] if isinstance(text_out, dict) else text_out.logits
+                        shift_text_logits = text_logits[..., :-1, :].contiguous().view(-1, text_logits.size(-1))
+                        shift_text_labels = text_labels.view(-1).to(shift_text_logits.device)
+                        text_loss = loss_fct(shift_text_logits, shift_text_labels)
+                        text_loss = text_loss * text_loss_mask.to(text_loss.device)
+                        text_loss = torch.sum(text_loss) / (torch.sum(text_loss_mask) + 1e-8)
+                        
+                        text_loss_for_backward = text_loss * loss_scale['text']
+                        text_loss_for_backward.backward()
+
+                        # then compute image loss
+                        img_labels = img_input_ids[:, 1:].contiguous()
+                        img_out = self.fsdp_model(
+                            input_ids=img_input_ids,
+                            attention_mask=img_attention_mask,
+                            position_ids=img_position_ids,
+                            input_img_mask=img_input_img_mask,
+                            bos_token_id=self.bos_token_id,
+                            pad_token_id=self.pad_token_id,
+                            image_start_token_id=self.image_start_token_id,
+                            cfg_weight=1.0,
+                            use_cache=False
+                        )
+                        img_logits = img_out['logits'] if isinstance(img_out, dict) else img_out.logits
+                        shift_img_logits = img_logits[..., :-1, :].contiguous().view(-1, img_logits.size(-1))
+                        shift_img_labels = img_labels.view(-1).to(shift_img_logits.device)
+                        img_loss = loss_fct(shift_img_logits, shift_img_labels)
+                        
+                        img_start_token_mask = shift_img_labels == self.image_start_token_id
+                        img_start_token_loss = img_loss * img_start_token_mask
+                        img_mask = img_input_img_mask[:, 1:].contiguous().view(-1)
+                        img_loss = img_loss * img_mask.to(img_loss.device)
+                        
+                        img_loss = torch.sum(img_loss) / (torch.sum(img_mask) + 1e-8)
+                        img_start_token_loss = torch.sum(img_start_token_loss) / (torch.sum(img_start_token_mask) + 1e-8)
+                        
+                        img_loss_for_backward = img_loss * loss_scale['image'] + img_start_token_loss * loss_scale['image_start_token']
+                        img_loss_for_backward.backward()
+                        
+
+                        # combine
+                        loss_dict = {'text': text_loss, 'image': img_loss, 'image_start_token': img_start_token_loss}
+                        loss = text_loss * loss_scale['text'] + img_loss * loss_scale['image'] + img_start_token_loss * loss_scale['image_start_token']
+                        # dummy loss mask for later valid_token_this_rank computation
+                        loss_mask = torch.ones(1).to(text_loss.device)
+                        
                 else:
                     # IMPORTANT: We have a big assumption here, so we can shard the SAME sequence across SP ranks
                     # i.e., each GPU has <1 sequence, and each SP group has 1 sequence
@@ -474,7 +551,7 @@ class FSDPSFTTrainer(object):
 
                 loss = torch.sum(loss) / (valid_token_this_rank + 1e-8) * dp_size
                 
-                if self.config.algorithm.use_kl_loss:
+                if self.config.algorithm.use_kl_loss and not self.config.algorithm.get('two_stage', False):
                     with torch.no_grad():
                         self.ref_fsdp_model.eval()
                         ref_output = self.ref_fsdp_model(input_ids=input_ids,
@@ -499,7 +576,7 @@ class FSDPSFTTrainer(object):
                             
                     loss = loss + kl_loss * self.config.algorithm.kl_loss_weight
                 
-                if do_backward:
+                if do_backward and not self.config.algorithm.get('two_stage', False):
                     loss.backward()
                 return {
                     'loss': loss,
