@@ -601,12 +601,15 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             inputs_embeds[i, ~duplicated_img_mask[i], :] = text_embeds[i]
         
         if not self.enable_gradient_checkpointing:
-            outputs = self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=duplicated_attn_mask, position_ids=duplicated_position_ids, use_cache=use_cache)
+            outputs = self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=duplicated_attn_mask, position_ids=duplicated_position_ids, use_cache=use_cache, output_hidden_states=True)
         else:
-            fn = lambda inputs_embeds, attention_mask, position_ids: self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=attention_mask, position_ids=position_ids, use_cache=use_cache)
+            fn = lambda inputs_embeds, attention_mask, position_ids: self.language_model.model(inputs_embeds=inputs_embeds, attention_mask=attention_mask, position_ids=position_ids, use_cache=use_cache, output_hidden_states=True)
             outputs = checkpoint_wrapper(fn, self.gradient_checkpointing_kwargs)(inputs_embeds, duplicated_attn_mask, duplicated_position_ids)
             
-        hidden_states = outputs.last_hidden_state
+        try:
+            hidden_states = outputs.last_hidden_state
+        except:
+            hidden_states = outputs.hidden_states[-1]
         
         text_hidden_states = hidden_states[~after_forward_duplicated_img_mask]
         img_hidden_states = hidden_states[after_forward_duplicated_img_mask]

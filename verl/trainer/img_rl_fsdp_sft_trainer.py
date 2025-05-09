@@ -90,8 +90,8 @@ class FSDPSFTTrainer(object):
         self.sharding_manager = FSDPUlyssesShardingManager(self.ulysses_device_mesh)
         # build tokenizer first
         local_model_path = copy_to_local(src=self.config.model.partial_pretrain, verbose=True)
-        if 'Janus' in local_model_path: # janus is not in huggingface cfg yet
-            self.processor = VLChatProcessor.from_pretrained(local_model_path)
+        if 'janus' in local_model_path.lower(): # janus is not in huggingface cfg yet
+            self.processor = VLChatProcessor.from_pretrained('deepseek-ai/Janus-Pro-7B')
             self.tokenizer = self.processor.tokenizer
             self.pad_token_id = self.tokenizer.pad_token_id
             self.eos_token_id = self.tokenizer.eos_token_id
@@ -227,7 +227,7 @@ class FSDPSFTTrainer(object):
                                                        mesh=self.device_mesh)
 
         with init_context():
-            if 'Janus' in local_model_path: # janus is not in huggingface cfg yet
+            if 'janus' in local_model_path.lower(): # janus is not in huggingface cfg yet
                 self.model = AutoModelForCausalLM.from_pretrained(pretrained_model_name_or_path=local_model_path,
                                                                 torch_dtype=torch.bfloat16,
                                                                 trust_remote_code=trust_remote_code)
@@ -262,7 +262,6 @@ class FSDPSFTTrainer(object):
                 _apply_liger_kernel_to_instance(model=self.model)
 
             if self.config.model.get('lora_rank', 0) > 0:
-                self.model.enable_input_require_grads()
                 # Convert config to regular Python types before creating PEFT model
                 lora_config = {
                     'task_type': TaskType.CAUSAL_LM,
@@ -271,7 +270,16 @@ class FSDPSFTTrainer(object):
                     'target_modules': convert_to_regular_types(self.config.model.target_modules),
                     'bias': "none"
                 }
-                self.model = get_peft_model(self.model, LoraConfig(**lora_config))
+                if not 'janus' in local_model_path.lower():
+                    self.model.enable_input_require_grads()
+                    self.model = get_peft_model(self.model, LoraConfig(**lora_config))
+                else:
+                    self.model.language_model.enable_input_require_grads()
+                    self.model.language_model = get_peft_model(self.model.language_model, LoraConfig(**lora_config)).to(torch.bfloat16)
+                    self.model.requires_grad_(False)       # freeze everything
+                    for name, param in self.model.named_parameters():
+                        if "lora" in name.lower():
+                            param.requires_grad = True
 
         if self.config.model.enable_gradient_checkpointing:
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
@@ -302,7 +310,7 @@ class FSDPSFTTrainer(object):
                                sync_module_states=True,
                                device_id=torch.cuda.current_device(),
                                cpu_offload=cpu_offload,
-                               use_orig_params=False)
+                               use_orig_params=self.config.model.get('lora_rank', 0) > 0)
         
         if self.config.algorithm.get('use_kl_loss', False):
             self.ref_fsdp_model = FSDP(module=self.ref_model,
