@@ -472,7 +472,10 @@ class HFSFTDataset(Dataset):
             prompt = prompt_augmentation(data, self.prompt_augmentation)
         
         # make the first letter small letter
-        prompt = prompt[0].lower() + prompt[1:]
+        # prompt = prompt[0].lower() + prompt[1:]
+        # remove the last dot
+        if prompt[-1] == '.':
+            prompt = prompt[:-1]
         
         # apply chat template
         prompt_chat = [
@@ -491,6 +494,13 @@ class HFSFTDataset(Dataset):
         response_ids_output = self.tokenizer(response_chat_str, return_tensors='pt', add_special_tokens=False)
         response_ids = response_ids_output['input_ids'][0]
         response_attention_mask = response_ids_output['attention_mask'][0]
+        
+        to_drop_prompt = random.random() < self.prompt_dropout
+        if to_drop_prompt: # replace prompt with padding, attention mask = 0
+            prompt_ids = torch.ones_like(prompt_ids, dtype=torch.long) * self.tokenizer.pad_token_id
+            prompt_attention_mask = torch.zeros_like(prompt_attention_mask, dtype=torch.bool)
+            response_ids = torch.ones_like(response_ids, dtype=torch.long) * self.tokenizer.pad_token_id
+            response_attention_mask = torch.zeros_like(response_attention_mask, dtype=torch.bool)
         
         img_indices = [len(response_ids)]
         response_ids = self.processor.add_image_token(input_ids = response_ids, image_indices=img_indices)[0]

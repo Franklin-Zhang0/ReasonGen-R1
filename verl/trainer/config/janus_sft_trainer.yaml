@@ -11,6 +11,7 @@ data:
   balance_dp_token: False
   chat_template: null
   prompt_augmentation: null
+  prompt_dropout: 0.0
 
 model:
   partial_pretrain: deepseek-ai/Janus-Pro-7B

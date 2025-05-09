@@ -148,7 +148,7 @@ class FSDPSFTTrainer(object):
                                         truncation=config.data.truncation,
                                         template=config.data.chat_template,
                                         prompt_augmentation=config.data.get('prompt_augmentation', None),
-                                        prompt_dropout=config.data.get('prompt_dropout', None),
+                                        prompt_dropout=config.data.get('prompt_dropout', 0.0),
                                         )
         self.val_dataset = HFSFTDataset(parquet_files=config.data.val_files,
                                       tokenizer=self.tokenizer,
@@ -630,16 +630,16 @@ class FSDPSFTTrainer(object):
 
         # TODO (zhangchi.usc1992) add back checkpoint manager. Currently, it blocks when uploading to hdfs. So very slow.
         # validation
-        val_logs = []
-        for data in self.val_dataloader:
-            data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
-            val_log = self.validation_step(data)
-            val_logs.append(val_log)
-        if rank == 0:
-            for key in val_logs[0].keys():
-                val_metric = torch.mean(torch.stack([log[key] for log in val_logs]))
-                metric = {key: val_metric.detach().item()}
-                tracking.log(data=metric, step=self.global_step)
+        # val_logs = []
+        # for data in self.val_dataloader:
+        #     data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
+        #     val_log = self.validation_step(data)
+        #     val_logs.append(val_log)
+        # if rank == 0:
+        #     for key in val_logs[0].keys():
+        #         val_metric = torch.mean(torch.stack([log[key] for log in val_logs]))
+        #         metric = {key: val_metric.detach().item()}
+        #         tracking.log(data=metric, step=self.global_step)
         torch.distributed.barrier()
         for epoch in range(self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
