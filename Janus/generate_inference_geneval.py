@@ -49,11 +49,11 @@ available_models={
         "model_path":"/blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only_1.0-0501/global_step_297/",
         "use_cot": True
     },
-    "verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_180":{
+    "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_180":{
         "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of/global_step_180/actor/huggingface",
         "use_cot": False
     },
-    "verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_100":{
+    "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_100":{
         "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of/global_step_100/actor/huggingface",
         "use_cot": False
     },
@@ -61,14 +61,18 @@ available_models={
         "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_kl_0.001_cfg_2.0_no_detach/global_step_140/actor/huggingface"
         ,"use_cot": False
     },
-    "verl_janus_test/image_only_grpo_8_rollout_kl_0.001_cfg_1.0_no_detach_no_a_photo_of_200":{
-        "model_path":"/blob/franklin/ckpt/image_rl\\verl_janus_test/image_only_grpo_8_rollout_kl_0.001_cfg_1.0_no_detach_no_a_photo_of/global_step_200/actor/huggingface",
+    "image_only_grpo_8_rollout_kl_0.001_cfg_1.0_no_detach_no_a_photo_of_200":{
+        "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_kl_0.001_cfg_1.0_no_detach_no_a_photo_of/global_step_200/actor/huggingface",
         "use_cot": False
-    }
+    },
+        "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_3_ds_400":{
+        "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_3_ds/global_step_400/actor/huggingface",
+        "use_cot": False
+    },
 }
 
 all_new_models_path = "/blob/franklin/ckpt/image_rl/janus_sft/"
-name_list = ["100k_sample_short", "100k_sample","23k_sample","200k_sample_short"]
+name_list = ["100k_sample_short", "100k_sample","23k_sample","200k_sample_short","200k_sample_aug_long"]
 for name in name_list:
     models_list = os.listdir(os.path.join(all_new_models_path, name))
     for model in models_list:
@@ -143,8 +147,8 @@ cot_assistant = """
     Use neutral or natural lighting to avoid color distortion.
     Ensure the apple and bananas are in clear focus—they are the subjects of the image."""
 
-template = "A photo of {}. Generate a detailed description of how to create an image strictly based on the information in the caption. Do not add extra elements or creative interpretation beyond the raw caption. Pay close attention to all specific details in the caption—such as color, position, number, orientation, and object types. Your output should be a breakdown of how to create the image, suitable for guiding an image generation model. Please directly output the reasoning steps."
-
+# template = "A photo of {}. Generate a detailed description of how to create an image strictly based on the information in the caption. Do not add extra elements or creative interpretation beyond the raw caption. Pay close attention to all specific details in the caption—such as color, position, number, orientation, and object types. Your output should be a breakdown of how to create the image, suitable for guiding an image generation model. Please directly output the reasoning steps."
+template = "A photo of {}. Output a richly detailed prompt: "
 def get_prompt(text, cot = False):
     text = text.replace("A photo of", "").replace("a photo of", "").strip() # avoid redundant a photo of
     if cot:
@@ -309,3 +313,4 @@ if __name__ == "__main__":
         out_dir,
         cot=use_cot
     )
+    
