@@ -606,19 +606,23 @@ class FSDPSFTTrainer(object):
         cfg = FullStateDictConfig(offload_to_cpu=True, rank0_only=True)
         with FSDP.state_dict_type(self.fsdp_model, StateDictType.FULL_STATE_DICT, cfg):
             state_dict = self.fsdp_model.state_dict()
+            
+        if self.config.model.get('lora_rank', 0) > 0:
+            with FSDP.state_dict_type(self.fsdp_model, StateDictType.FULL_STATE_DICT, cfg):
+                lora_state_dict = self.fsdp_model.language_model.state_dict()
 
         path = os.path.join(self.config.trainer.default_local_dir, f'global_step_{step}')
         # save huggingface model
         if self.device_mesh.get_rank() == 0:
             os.makedirs(path, exist_ok=True)
-            if not 'janus' in self.config.model.partial_pretrain:
+            if not self.config.model.get('lora_rank', 0) > 0:
                 self.model.save_pretrained(path, state_dict=state_dict)
                 self.tokenizer.save_pretrained(path)
                 if self.config.trainer.default_hdfs_dir:
                     hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
                     hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
             else:
-                self.model.language_model.save_pretrained(path, state_dict=state_dict)
+                self.model.language_model.save_pretrained(path, state_dict=lora_state_dict)
                 self.tokenizer.save_pretrained(path)
                 if self.config.trainer.default_hdfs_dir:
                     hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
