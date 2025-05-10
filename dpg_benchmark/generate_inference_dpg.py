@@ -72,7 +72,7 @@ available_models={
 }
 
 all_new_models_path = "/blob/franklin/ckpt/image_rl/janus_sft/"
-name_list = ["100k_sample_short", "100k_sample","23k_sample","200k_sample_short"]
+name_list = ["100k_sample_short", "100k_sample","23k_sample","200k_sample_short","200k_sample_aug_long"]
 for name in name_list:
     models_list = os.listdir(os.path.join(all_new_models_path, name))
     for model in models_list:
@@ -94,6 +94,17 @@ for name in name_list:
         }
         # print(f"\"{model_name}\"")
 
+available_models["test_two_stage"] = {
+    "model_path":"deepseek-ai/Janus-Pro-7B",
+    "use_cot": True,
+    "two_stage": True
+}
+
+available_models["200k_sample_aug_long_7B_bs128_lr1e-5_all_1.0-two_stage-0510_1650"] = {
+    "model_path":"/blob/franklin/ckpt/image_rl/janus_sft/200k_sample_aug_long/200k_sample_aug_long_7B_bs128_lr1e-5_all_1.0-two_stage-0510/global_step_1650",
+    "use_cot": True,
+    "two_stage": True
+}
 
 # get tyro arguments
 def get_args():
@@ -110,6 +121,7 @@ out_dir = os.path.expanduser(f"~/project/Image-RL/dpg_benchmark/dpg_result/{mode
 os.makedirs(out_dir, exist_ok=True)
 model_path = available_models[model_name]["model_path"]
 use_cot = available_models[model_name]["use_cot"]
+use_two_stage = "two_stage" in available_models[model_name]
 
 processor_path = "deepseek-ai/Janus-Pro-7B"
 vl_chat_processor: VLChatProcessor = VLChatProcessor.from_pretrained(processor_path)
@@ -148,9 +160,10 @@ cot_assistant = """
     Use neutral or natural lighting to avoid color distortion.
     Ensure the apple and bananas are in clear focus—they are the subjects of the image."""
 
-template = "A photo of {}. Generate a detailed description of how to create an image strictly based on the information in the caption. Do not add extra elements or creative interpretation beyond the raw caption. Pay close attention to all specific details in the caption—such as color, position, number, orientation, and object types. Your output should be a breakdown of how to create the image, suitable for guiding an image generation model. Please directly output the reasoning steps."
+# template = "A photo of {}. Generate a detailed description of how to create an image strictly based on the information in the caption. Do not add extra elements or creative interpretation beyond the raw caption. Pay close attention to all specific details in the caption—such as color, position, number, orientation, and object types. Your output should be a breakdown of how to create the image, suitable for guiding an image generation model. Please directly output the reasoning steps."
 
 def get_prompt(text, cot = False):
+    template = "A photo of {}. Output a richly detailed prompt: "
     text = text.replace("A photo of", "").replace("a photo of", "").strip() # avoid redundant a photo of
     if cot:
         conversation = [
@@ -180,6 +193,29 @@ def get_prompt(text, cot = False):
         prompt = sft_format
     return prompt
 
+def two_stage_prompt(text):
+    template = "{}. "
+    conversation = [
+        {
+            "role": "<|User|>",
+            "content": template.format(text),
+        },
+        {"role": "<|Assistant|>", "content": ""},
+    ]
+    system_prompt = "You are a helpful assistant. Given a short prompt, generate a richly detailed image description suitable for guiding an image generation model, including objects, setting, spatail relationship, mood, and visual details."
+    sft_format = vl_chat_processor.apply_sft_template_for_multi_turn_prompts(
+        conversations=conversation,
+        sft_format=vl_chat_processor.sft_format,
+        system_prompt=system_prompt,
+    )
+
+    img_sft_format = vl_chat_processor.apply_sft_template_for_multi_turn_prompts(
+        conversations=conversation,
+        sft_format=vl_chat_processor.sft_format,
+        system_prompt=""
+    )
+    return sft_format, img_sft_format
+
 @torch.inference_mode()
 def generate_from_dpg_folder(
     # jsonl_path: str,
@@ -196,7 +232,11 @@ def generate_from_dpg_folder(
     patch_size: int = 16,
     cot: bool = False,
 ):  
-    def inference_from_prompt_cot(prompt):
+    def inference_from_prompt_cot(prompt,two_stage_img_sft_format=None):
+        if two_stage_img_sft_format is not None:
+            img_input_ids = vl_chat_processor.tokenizer.encode(two_stage_img_sft_format)
+            img_input_ids = torch.LongTensor(img_input_ids).cuda()
+            img_input_ids = img_input_ids.unsqueeze(0).repeat(parallel_size, 1)
         input_ids = vl_chat_processor.tokenizer.encode(prompt)
         input_ids = torch.LongTensor(input_ids).cuda()
         attention_mask = torch.ones((len(input_ids)), dtype=torch.bool).cuda()
@@ -208,22 +248,36 @@ def generate_from_dpg_folder(
         input_ids = input_ids.unsqueeze(0).repeat(parallel_size, 1)
         attention_mask = attention_mask.unsqueeze(0).repeat(parallel_size, 1)
         generation_config = {'cfg_weight': 5.0}
-        output = vl_gpt.text_img_generate(
-            input_ids,
-            attention_mask, 
-            do_sample, 
-            max_new_tokens, 
-            eos_token_id, 
-            pad_token_id, 
-            image_start_token_id,
-            generation_config,
-        )
+        if two_stage_img_sft_format is not None:
+            output = vl_gpt.text_img_generate_two_stage(
+                input_ids,
+                img_input_ids,
+                attention_mask, 
+                do_sample, 
+                max_new_tokens, 
+                eos_token_id, 
+                pad_token_id, 
+                image_start_token_id,
+                generation_config,
+            )
+        else:
+            output = vl_gpt.text_img_generate(
+                input_ids,
+                attention_mask, 
+                do_sample, 
+                max_new_tokens, 
+                eos_token_id, 
+                pad_token_id, 
+                image_start_token_id,
+                generation_config,
+            )
         tokens = output.text_tokens
         cots = []
         for i in range(len(tokens)):
             cot_out = vl_chat_processor.tokenizer.decode(tokens[i], skip_special_tokens=True)
             cots.append(cot_out)
         return cots, output.gen_img
+    
 
     def inference_from_prompt(prompt):
         input_ids = vl_chat_processor.tokenizer.encode(prompt)
@@ -289,7 +343,11 @@ def generate_from_dpg_folder(
         with open(os.path.join(dpg_prompt_dir, this_txt_file), "r") as f:
             text = f.read()
         assert text is not None and isinstance(text, str)
-        prompt = get_prompt(text, cot=cot)
+        if use_two_stage:
+            prompt, img_sft_format = two_stage_prompt(text)
+        else:
+            prompt = get_prompt(text, cot=cot)
+            img_sft_format = None
         this_img_path = os.path.join(out_dir, this_txt_file.replace(".txt", ".png"))
         if os.path.exists(this_img_path):
             continue
@@ -305,7 +363,7 @@ def generate_from_dpg_folder(
         # with open(os.path.join(meta_data_path), "w") as f:
         #     f.write(json.dumps(data))
         if cot:
-            cots, visual_img=inference_from_prompt_cot(prompt)
+            cots, visual_img=inference_from_prompt_cot(prompt, img_sft_format)
             # cot_out_dir = os.path.join(this_out_dir, "cots")
             # os.makedirs(cot_out_dir, exist_ok=True)
             # for i in range(len(cots)):

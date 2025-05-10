@@ -22,3 +22,4 @@ pillow
 vllm==0.8.2
 qwen_vl_utils
 mathruler
+tyro

@@ -75,7 +75,10 @@ model_name_list=(
     # "200k_sample_aug_long_7B_bs128_lr1e-5_image_1.0_text_0.0-0509_1650"
     # "200k_sample_aug_long_7B_bs128_lr1e-5_image_1.0_text_0.5-0509_1650"
     # "200k_sample_aug_long_7B_bs128_lr1e-5_image_1.0_text_0.5-free_template-0509_1650"
-    "200k_sample_aug_long_7B_bs128_lr1e-5_image_1.0_text_2.0_start_0.0-free_template-0509_1650"
+    # "200k_sample_aug_long_7B_bs128_lr1e-5_image_1.0_text_2.0_start_0.0-free_template-0509_1650"
+
+    # "test_two_stage"
+    "200k_sample_aug_long_7B_bs128_lr1e-5_all_1.0-two_stage-0510_1650"
 
 
     # "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_3_ds_400"
