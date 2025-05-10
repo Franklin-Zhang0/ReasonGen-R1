@@ -280,6 +280,8 @@ class FSDPSFTTrainer(object):
                     for name, param in self.model.named_parameters():
                         if "lora" in name.lower():
                             param.requires_grad = True
+                    for name, param in self.model.named_parameters():
+                        print(name, param.requires_grad)                       
 
         if self.config.model.enable_gradient_checkpointing:
             self.model.gradient_checkpointing_enable(gradient_checkpointing_kwargs={'use_reentrant': False})
@@ -609,11 +611,18 @@ class FSDPSFTTrainer(object):
         # save huggingface model
         if self.device_mesh.get_rank() == 0:
             os.makedirs(path, exist_ok=True)
-            self.model.save_pretrained(path, state_dict=state_dict)
-            self.tokenizer.save_pretrained(path)
-            if self.config.trainer.default_hdfs_dir:
-                hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
-                hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
+            if not 'janus' in self.config.model.partial_pretrain:
+                self.model.save_pretrained(path, state_dict=state_dict)
+                self.tokenizer.save_pretrained(path)
+                if self.config.trainer.default_hdfs_dir:
+                    hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
+                    hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
+            else:
+                self.model.language_model.save_pretrained(path, state_dict=state_dict)
+                self.tokenizer.save_pretrained(path)
+                if self.config.trainer.default_hdfs_dir:
+                    hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
+                    hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)
         torch.distributed.barrier()
 
     def fit(self):
