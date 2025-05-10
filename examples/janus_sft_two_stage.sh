@@ -22,10 +22,10 @@ torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
     trainer.default_local_dir=$save_path \
     trainer.project_name=sft_test \
     trainer.experiment_name=200k_sample_aug_long_7B_bs128_lr1e-5_all_1.0-two_stage-0510 \
-    trainer.total_epochs=2 \
+    trainer.total_epochs=1 \
     model.fsdp_config.cpu_offload=True \
     model.fsdp_config.wrap_policy.min_num_params=1000000 \
-    trainer.logger=['console'] \
+    trainer.logger=['console','wandb'] \
     optim.warmup_steps_ratio=0.05 \
     optim.lr=1e-5 \
     algorithm.loss_scale.image=1.0 \

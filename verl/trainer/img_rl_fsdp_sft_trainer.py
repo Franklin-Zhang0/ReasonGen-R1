@@ -453,7 +453,8 @@ class FSDPSFTTrainer(object):
                         text_loss = torch.sum(text_loss) / (torch.sum(text_loss_mask) + 1e-8)
                         
                         text_loss_for_backward = text_loss * loss_scale['text']
-                        text_loss_for_backward.backward()
+                        if do_backward:
+                            text_loss_for_backward.backward()
 
                         # then compute image loss
                         img_labels = img_input_ids[:, 1:].contiguous()
@@ -482,7 +483,8 @@ class FSDPSFTTrainer(object):
                         img_start_token_loss = torch.sum(img_start_token_loss) / (torch.sum(img_start_token_mask) + 1e-8)
                         
                         img_loss_for_backward = img_loss * loss_scale['image'] + img_start_token_loss * loss_scale['image_start_token']
-                        img_loss_for_backward.backward()
+                        if do_backward:
+                            img_loss_for_backward.backward()
                         
 
                         # combine
@@ -707,16 +709,16 @@ class FSDPSFTTrainer(object):
 
         # TODO (zhangchi.usc1992) add back checkpoint manager. Currently, it blocks when uploading to hdfs. So very slow.
         # validation
-        # val_logs = []
-        # for data in self.val_dataloader:
-        #     data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
-        #     val_log = self.validation_step(data)
-        #     val_logs.append(val_log)
-        # if rank == 0:
-        #     for key in val_logs[0].keys():
-        #         val_metric = torch.mean(torch.stack([log[key] for log in val_logs]))
-        #         metric = {key: val_metric.detach().item()}
-        #         tracking.log(data=metric, step=self.global_step)
+        val_logs = []
+        for data in self.val_dataloader:
+            data = TensorDict(data, batch_size=self.config.data.micro_batch_size_per_gpu).cuda()
+            val_log = self.validation_step(data)
+            val_logs.append(val_log)
+        if rank == 0:
+            for key in val_logs[0].keys():
+                val_metric = torch.mean(torch.stack([log[key] for log in val_logs]))
+                metric = {key: val_metric.detach().item()}
+                tracking.log(data=metric, step=self.global_step)
         torch.distributed.barrier()
         for epoch in range(self.config.trainer.total_epochs):
             self.train_sampler.set_epoch(epoch=epoch)
@@ -731,6 +733,8 @@ class FSDPSFTTrainer(object):
 
                 # for early exit validation
                 if self.global_step >= self.total_training_steps:
+                    # Save final checkpoint
+                    self.save_checkpoint(step=self.global_step)
                     # Perform final validation
                     val_logs = []
                     for val_data in self.val_dataloader:
@@ -743,11 +747,11 @@ class FSDPSFTTrainer(object):
                             metric = {key: val_metric.detach().item()}
                             tracking.log(data=metric, step=self.global_step)
                     torch.distributed.barrier()
-
-                    # Save final checkpoint
-                    self.save_checkpoint(step=self.global_step)
+                    
                     return
-
+                
+            # save checkpoint
+            self.save_checkpoint(step=self.global_step)
             # validation
             val_logs = []
             for data in self.val_dataloader:
@@ -761,8 +765,7 @@ class FSDPSFTTrainer(object):
                     tracking.log(data=metric, step=self.global_step)
             torch.distributed.barrier()
 
-            # save checkpoint
-            self.save_checkpoint(step=self.global_step)
+            
 
 
 # from verl.trainer.fsdp_sft_trainer import FSDPSFTTrainer
