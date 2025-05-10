@@ -409,8 +409,12 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                                                 attention_mask=attention_mask,
                                                 position_ids=position_ids,
                                                 use_cache=use_cache, 
-                                                past_key_values=outputs.past_key_values if i != 0 else None)
-            hidden_states = outputs.last_hidden_state
+                                                past_key_values=outputs.past_key_values if i != 0 else None,
+                                                output_hidden_states=True)
+            try:
+                hidden_states = outputs.last_hidden_state
+            except:
+                hidden_states = outputs.hidden_states[-1]
             
             logits = self.language_model.lm_head(hidden_states[:, -1, :])
             if not do_sample:
@@ -427,9 +431,10 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             ended = ended | (next_token == image_start_token_id)
             generated_length += 1
             local_ended = ended.all().to(torch.int)
-            dist.all_reduce(local_ended, op=dist.ReduceOp.MIN)
-            if local_ended == 1:
-                break
+            if dist.is_initialized():
+                dist.all_reduce(local_ended, op=dist.ReduceOp.MIN)
+                if local_ended == 1:
+                    break
         
         generated_tokens = generated_tokens[:, :generated_length]
         output = AttrDict(
@@ -451,7 +456,8 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                  generation_config=None, 
                  output_scores=False, 
                  return_dict_in_generate=True, 
-                 use_cache=True
+                 use_cache=True,
+                 text_lora_module=None,
                 ):
         if generation_config is None:
             generation_config = {}
@@ -460,7 +466,11 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         img_size = generation_config.get("img_size", 384)
         patch_size = generation_config.get("patch_size", 16)
         temperature = generation_config.get("temperature", 1.0)
-        
+        device = self.language_model.device
+        if text_lora_module is not None:
+            llm_backup = self.language_model.to('cpu')
+            self.language_model = text_lora_module.to(device)
+            
         text_output = self.text_generate(input_ids,
                                         attention_mask,
                                         do_sample,
@@ -494,6 +504,10 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             cat_lengths.append(cat_length)
             
         attention_mask = torch.where(new_input_ids == pad_token_id, 0, 1).to(torch.bool)
+        
+        if text_lora_module is not None:
+            self.language_model.to('cpu')
+            self.language_model = llm_backup.to(device)
         
         img_output = self.generate(new_input_ids,
                                     attention_mask=attention_mask,
