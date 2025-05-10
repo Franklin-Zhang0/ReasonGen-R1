@@ -732,7 +732,7 @@ class FSDPSFTTrainer(object):
                     tracking.log(data=metric, step=self.global_step)
 
                 # for early exit validation
-                if self.global_step >= self.total_training_steps:
+                if self.global_step >= self.total_training_steps or self.global_step % self.config.trainer.save_freq == 0:
                     # Save final checkpoint
                     self.save_checkpoint(step=self.global_step)
                     # Perform final validation
@@ -748,7 +748,8 @@ class FSDPSFTTrainer(object):
                             tracking.log(data=metric, step=self.global_step)
                     torch.distributed.barrier()
                     
-                    return
+                    if self.global_step >= self.total_training_steps:
+                        return
                 
             # save checkpoint
             self.save_checkpoint(step=self.global_step)

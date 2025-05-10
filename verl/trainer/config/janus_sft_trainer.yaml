@@ -45,6 +45,8 @@ trainer:
   total_training_steps: null
   logger: ['console']
   seed: 1
+  save_freq: 500
+
 algorithm:
   loss_scale:
     image: 1.0
@@ -60,5 +62,4 @@ algorithm:
     text: 1.0
     image_start_token: 1.0
   two_stage: False
-
 
