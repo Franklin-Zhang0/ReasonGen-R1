@@ -8,6 +8,9 @@ import json
 from tqdm import tqdm
 import tyro
 
+from peft import PeftModel
+from copy import deepcopy
+
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*?Your .*? set is empty.*?")
 from accelerate import Accelerator
@@ -49,11 +52,11 @@ available_models={
         "model_path":"/blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only_1.0-0501/global_step_297/",
         "use_cot": True
     },
-    "verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_180":{
+    "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_180":{
         "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of/global_step_180/actor/huggingface",
         "use_cot": False
     },
-    "verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_100":{
+    "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_100":{
         "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of/global_step_100/actor/huggingface",
         "use_cot": False
     },
@@ -61,7 +64,7 @@ available_models={
         "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_kl_0.001_cfg_2.0_no_detach/global_step_140/actor/huggingface"
         ,"use_cot": False
     },
-    "verl_janus_test/image_only_grpo_8_rollout_kl_0.001_cfg_1.0_no_detach_no_a_photo_of_200":{
+    "image_only_grpo_8_rollout_kl_0.001_cfg_1.0_no_detach_no_a_photo_of_200":{
         "model_path":"/blob/franklin/ckpt/image_rl\\verl_janus_test/image_only_grpo_8_rollout_kl_0.001_cfg_1.0_no_detach_no_a_photo_of/global_step_200/actor/huggingface",
         "use_cot": False
     }
@@ -90,6 +93,11 @@ for name in name_list:
         }
         # print(f"\"{model_name}\"")
 
+available_models['100k_sample_short_7B_bs128_lr1e-5_image_only-0505_1990_lora_398']={
+    "model_path":"/blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only-0505/global_step_1990",
+    "lora_path":"/blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only-0505/text_lora/global_step_398",
+    "use_cot": True
+}
 
 # get tyro arguments
 def get_args():
@@ -105,7 +113,9 @@ model_name = args.model_name
 out_dir = os.path.expanduser(f"~/project/Image-RL/geneval_out_result/geneval_output_{model_name}")
 model_path = available_models[model_name]["model_path"]
 use_cot = available_models[model_name]["use_cot"]
-
+use_lora = hasattr(available_models[model_name], "lora_path")
+if use_lora:
+    lora_path = available_models[model_name]["lora_path"]
 processor_path = "deepseek-ai/Janus-Pro-7B"
 vl_chat_processor: VLChatProcessor = VLChatProcessor.from_pretrained(processor_path)
 tokenizer = vl_chat_processor.tokenizer
@@ -114,7 +124,16 @@ tokenizer = vl_chat_processor.tokenizer
 vl_gpt: MultiModalityCausalLM = AutoModelForCausalLM.from_pretrained(
     model_path, trust_remote_code=True
 )
+if use_lora:
+    lora_weights = PeftModel.from_pretrained(
+        deepcopy(vl_gpt.language_model),
+        lora_path,
+        torch_dtype=torch.bfloat16,
+        device_map="cpu",
+        is_trainable=False,
+    )
 vl_gpt = vl_gpt.to(torch.bfloat16).eval().to(accelerator.device)
+
 
 cot_assistant = """
 1. Scene Layout:
@@ -202,16 +221,29 @@ def generate_from_geneval_jsonl(
         input_ids = input_ids.unsqueeze(0).repeat(parallel_size, 1)
         attention_mask = attention_mask.unsqueeze(0).repeat(parallel_size, 1)
         generation_config = {'cfg_weight': 5.0}
-        output = vl_gpt.text_img_generate(
-            input_ids,
-            attention_mask, 
-            do_sample, 
-            max_new_tokens, 
-            eos_token_id, 
-            pad_token_id, 
-            image_start_token_id,
-            generation_config,
-        )
+        if use_lora:
+            output = vl_gpt.text_img_generate(
+                input_ids,
+                attention_mask, 
+                do_sample, 
+                max_new_tokens, 
+                eos_token_id, 
+                pad_token_id, 
+                image_start_token_id,
+                generation_config,
+                text_lora_module=lora_weights,
+            )
+        else:
+            output = vl_gpt.text_img_generate(
+                input_ids,
+                attention_mask, 
+                do_sample, 
+                max_new_tokens, 
+                eos_token_id, 
+                pad_token_id, 
+                image_start_token_id,
+                generation_config,
+            )
         tokens = output.text_tokens
         cots = []
         for i in range(len(tokens)):

@@ -69,9 +69,10 @@ model_name_list=(
 
     # "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_180"
     # "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_100"
+    # "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_3_ds_400"
 
 
-    "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_3_ds_400"
+    "100k_sample_short_7B_bs128_lr1e-5_image_only-0505_1990_lora_398"
 
 
 
