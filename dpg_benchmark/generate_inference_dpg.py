@@ -103,6 +103,12 @@ available_models['100k_sample_short_7B_bs128_lr1e-5_image_only-0505_1990_lora_39
     "use_cot": True
 }
 
+available_models['100k_sample_short_7B_bs128_lr1e-5_image_only-0505_1990_lora_796']={
+    "model_path":"/blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only-0505/global_step_1990",
+    "lora_path":"blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only-0505/text_lora/global_step_796/",
+    "use_cot": True
+}
+
 # get tyro arguments
 def get_args():
     from dataclasses import dataclass
@@ -118,7 +124,7 @@ out_dir = os.path.expanduser(f"~/project/Image-RL/dpg_benchmark/dpg_result/{mode
 os.makedirs(out_dir, exist_ok=True)
 model_path = available_models[model_name]["model_path"]
 use_cot = available_models[model_name]["use_cot"]
-use_lora = hasattr(available_models[model_name], "lora_path")
+use_lora = "lora_path" in available_models[model_name]
 if use_lora:
     lora_path = available_models[model_name]["lora_path"]
 processor_path = "deepseek-ai/Janus-Pro-7B"

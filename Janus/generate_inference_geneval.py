@@ -99,6 +99,12 @@ available_models['100k_sample_short_7B_bs128_lr1e-5_image_only-0505_1990_lora_39
     "use_cot": True
 }
 
+available_models['100k_sample_short_7B_bs128_lr1e-5_image_only-0505_1990_lora_796']={
+    "model_path":"/blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only-0505/global_step_1990",
+    "lora_path":"blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only-0505/text_lora/global_step_796/",
+    "use_cot": True
+}
+
 # get tyro arguments
 def get_args():
     from dataclasses import dataclass
@@ -113,7 +119,7 @@ model_name = args.model_name
 out_dir = os.path.expanduser(f"~/project/Image-RL/geneval_out_result/geneval_output_{model_name}")
 model_path = available_models[model_name]["model_path"]
 use_cot = available_models[model_name]["use_cot"]
-use_lora = hasattr(available_models[model_name], "lora_path")
+use_lora = "lora_path" in available_models[model_name]
 if use_lora:
     lora_path = available_models[model_name]["lora_path"]
 processor_path = "deepseek-ai/Janus-Pro-7B"
@@ -134,33 +140,6 @@ if use_lora:
     )
 vl_gpt = vl_gpt.to(torch.bfloat16).eval().to(accelerator.device)
 
-
-cot_assistant = """
-1. Scene Layout:
-    Begin by creating a flat horizontal surface to represent the table.
-    Place a plate on top of the table, positioned in the center or a clearly visible part of the image.
-
-2. Plate Configuration:
-    The plate should be large enough to comfortably hold three fruits (1 apple, 2 bananas).
-    Ensure that the plate is clearly visible, with no fruit or table obscuring its outline.
-
-3. Fruit Placement:
-    Place one apple in the plate. It should be: Whole and unpeeled.
-    Clearly distinguishable in shape and texture from the bananas.
-    
-    Place two bananas in the plate. They should be:
-    Whole, unpeeled, and side-by-side or slightly curved around the apple.
-    Ensure all three fruits are entirely within the plate.
-
-4. Perspective and Visibility:
-    Choose a camera/viewing angle that clearly shows:
-    All three fruits inside the plate.
-    Enough of the table surface to confirm the plate is placed on it.
-    All objects must be unobstructed and clearly identifiable.
-
-5. Lighting and Focus:
-    Use neutral or natural lighting to avoid color distortion.
-    Ensure the apple and bananas are in clear focus—they are the subjects of the image."""
 
 template = "A photo of {}. Generate a detailed description of how to create an image strictly based on the information in the caption. Do not add extra elements or creative interpretation beyond the raw caption. Pay close attention to all specific details in the caption—such as color, position, number, orientation, and object types. Your output should be a breakdown of how to create the image, suitable for guiding an image generation model. Please directly output the reasoning steps."
 
