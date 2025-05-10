@@ -427,9 +427,10 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             ended = ended | (next_token == image_start_token_id)
             generated_length += 1
             local_ended = ended.all().to(torch.int)
-            dist.all_reduce(local_ended, op=dist.ReduceOp.MIN)
-            if local_ended == 1:
-                break
+            if dist.is_initialized():
+                dist.all_reduce(local_ended, op=dist.ReduceOp.MIN)
+                if local_ended == 1:
+                    break
         
         generated_tokens = generated_tokens[:, :generated_length]
         output = AttrDict(
@@ -529,6 +530,90 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             seq_img_mask=seq_img_mask,
             gen_img=gen_img,
         )        
+        return output
+    
+    def text_img_generate_two_stage(self,
+                 input_ids, 
+                 img_input_ids,
+                 attention_mask, 
+                 do_sample, 
+                 max_new_tokens, 
+                 eos_token_id, 
+                 pad_token_id, 
+                 image_start_token_id,
+                 generation_config=None, 
+                 output_scores=False, 
+                 return_dict_in_generate=True, 
+                 use_cache=True):
+        
+        if generation_config is None:
+            generation_config = {}
+        cfg_weight = generation_config.get("cfg_weight", 5.0)
+        image_token_num_per_image = generation_config.get("image_token_num_per_image", 576)
+        img_size = generation_config.get("img_size", 384)
+        patch_size = generation_config.get("patch_size", 16)
+        temperature = generation_config.get("temperature", 1.0)
+        
+        text_output = self.text_generate(input_ids,
+                        attention_mask,
+                        do_sample,
+                        max_new_tokens-image_token_num_per_image,
+                        eos_token_id=eos_token_id,
+                        pad_token_id=pad_token_id,
+                        image_start_token_id=image_start_token_id,
+                        generation_config=generation_config,
+                        output_scores=output_scores,
+                        return_dict_in_generate=return_dict_in_generate,
+                        use_cache=use_cache
+                        )
+        
+        generated_tokens = text_output.generated_tokens
+        input_ids_for_img = torch.cat([img_input_ids[:, :-4], generated_tokens, img_input_ids[:, -4:]], dim=1) # Last two tokens are <Assistant>:
+        max_length = input_ids_for_img.shape[1]
+        
+        cat_lengths = []
+        # change to left padding
+        for i in range(input_ids_for_img.shape[0]):
+            input_ids_for_img[i, :] = torch.where(input_ids_for_img[i, :] == eos_token_id, image_start_token_id, input_ids_for_img[i, :])
+            img_start_mask = input_ids_for_img[i] == image_start_token_id
+            if not img_start_mask.any(): # no padding
+                input_ids_for_img[i, -1] = image_start_token_id
+                cat_length = 0
+                # print("no image start token")
+            else:
+                img_start_idx = torch.argwhere(img_start_mask)[0][0]
+                input_ids_for_img[i] = torch.cat([torch.ones((max_length-img_start_idx-1,), dtype=torch.long).cuda()*pad_token_id, input_ids_for_img[i, :img_start_idx+1]], dim=0)
+                cat_length = max_length - img_start_idx - 1
+            cat_lengths.append(cat_length)
+            
+        attention_mask_for_img = torch.where(input_ids_for_img == pad_token_id, 0, 1).to(torch.bool)
+        
+        img_output = self.generate(input_ids_for_img,
+                                    attention_mask=attention_mask_for_img,
+                                    do_sample=do_sample,
+                                    max_new_tokens=image_token_num_per_image,
+                                    eos_token_id=eos_token_id,
+                                    pad_token_id=pad_token_id,
+                                    generation_config=generation_config,
+                                    output_scores=output_scores,
+                                    return_dict_in_generate=return_dict_in_generate,
+                                    use_cache=use_cache
+                                    )
+        
+        seq = img_output.sequences
+        seq_img_mask = img_output.seq_img_mask
+        gen_img = img_output.gen_img
+        
+        
+        output = AttrDict(
+            text_tokens=input_ids_for_img,
+            text_gen_tokens=generated_tokens,
+            img_tokens=img_output.generated_tokens,
+            sequences=seq,
+            seq_img_mask=seq_img_mask,
+            gen_img=gen_img,
+        )
+        
         return output
                          
     
