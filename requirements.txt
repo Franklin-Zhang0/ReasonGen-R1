@@ -19,7 +19,7 @@ transformers
 # vllm==0.6.3.post1
 wandb
 pillow
-vllm==0.8.2
+vllm==0.8.5
 qwen_vl_utils
 mathruler
 tyro
