@@ -132,7 +132,7 @@ vl_gpt: MultiModalityCausalLM = AutoModelForCausalLM.from_pretrained(
 )
 if use_lora:
     lora_weights = PeftModel.from_pretrained(
-        deepcopy(vl_gpt.language_model),
+        deepcopy(vl_gpt.language_model.to('cpu')),
         lora_path,
         torch_dtype=torch.bfloat16,
         device_map="cpu",
@@ -181,7 +181,7 @@ def generate_from_geneval_jsonl(
     # prompt: str,
     out_dir: str,
     temperature: float = 1,
-    parallel_size: int = 4,
+    parallel_size: int = 2,
     cfg_weight: float = 5.0,
     image_token_num_per_image: int = 576,
     img_size: int = 384,
@@ -297,12 +297,13 @@ def generate_from_geneval_jsonl(
         with open(os.path.join(meta_data_path), "w") as f:
             f.write(json.dumps(data))
         if cot:
-            cots, visual_img=inference_from_prompt_cot(prompt)
-            cot_out_dir = os.path.join(this_out_dir, "cots")
-            os.makedirs(cot_out_dir, exist_ok=True)
-            for i in range(len(cots)):
-                with open(os.path.join(cot_out_dir, f"{i:04d}.txt"), "w") as f:
-                    f.write(cots[i])
+            for num_gen in range(4//parallel_size):
+                cots, visual_img=inference_from_prompt_cot(prompt)
+                cot_out_dir = os.path.join(this_out_dir, "cots")
+                os.makedirs(cot_out_dir, exist_ok=True)
+                for i in range(len(cots)):
+                    with open(os.path.join(cot_out_dir, f"{i+num_gen*4//parallel_size:04d}.txt"), "w") as f:
+                        f.write(cots[i])
         else:
             visual_img=inference_from_prompt(prompt)
         os.makedirs(sample_out_dir, exist_ok=True)

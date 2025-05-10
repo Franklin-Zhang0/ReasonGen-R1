@@ -65,9 +65,11 @@ model_name_list=(
     # "200k_sample_short_7B_bs128_lr2e-5_image_1.0_text_0.5-0506_3320"
     # "200k_sample_short_7B_bs128_lr2e-5_image_1.0_text_0.2-0506_1660"
     # "200k_sample_short_7B_bs128_lr2e-5_image_1.0_text_0.2-0506_3320"
-
-
     "100k_sample_short_7B_bs128_lr1e-5_image_only-0505_1990_lora_398"
+
+    "100k_sample_short_7B_bs128_lr1e-5_image_only-0505_1990_lora_796"
+
+
 
     # "verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_180"
     # "verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_100"
@@ -94,7 +96,7 @@ for name in "${model_name_list[@]}"; do
     echo ""
     echo "Model: ${name}, inference start"
     echo ""
-    accelerate launch --quiet $HOME_PATH/project/Image-RL/Janus/generate_inference_geneval.py --model_name="${name}"
+    accelerate launch --num_processes 8 --quiet $HOME_PATH/project/Image-RL/Janus/generate_inference_geneval.py --model_name="${name}"
     CUDA_VISIBLE_DEVICES=0 python $HOME_PATH/project/Image-RL/Janus/generate_inference_geneval.py --model_name="${name}"
     echo "Model: ${name}, inference end"
     echo ""
@@ -110,9 +112,9 @@ for name in "${model_name_list[@]}"; do
     CUDA_VISIBLE_DEVICES=$cnt python "$HOME_PATH/project/geneval/evaluation/evaluate_images.py" \
         "$HOME_PATH/project/Image-RL/geneval_out_result/geneval_output_${name}" \
         --outfile "/blob/franklin/expdata/geneval_out_result/results_output_${name}.jsonl" \
-        --model-path "$HOME_PATH/project/geneval/models"
+        --model-path "$HOME_PATH/project/geneval/models" &
     cnt=$((cnt + 1))
-    if [ $cnt -eq 1 ]; then
+    if [ $cnt -eq 2 ]; then
         wait
         cnt=0
     fi
@@ -122,13 +124,13 @@ for name in "${model_name_list[@]}"; do
     echo ""
 done
 
-conda activate geneval
-for name in "${all_model_name_list[@]}"; do
-    echo ""
-    echo "Result of ${name}"
-    python $HOME_PATH/project/geneval/evaluation/summary_scores.py "/blob/franklin/expdata/geneval_out_result/results_output_${name}.jsonl"
-    echo "====================="
-    echo ""
-done
+# conda activate geneval
+# for name in "${all_model_name_list[@]}"; do
+#     echo ""
+#     echo "Result of ${name}"
+#     python $HOME_PATH/project/geneval/evaluation/summary_scores.py "/blob/franklin/expdata/geneval_out_result/results_output_${name}.jsonl"
+#     echo "====================="
+#     echo ""
+# done
 
 python ~/thinking.py > /dev/null 2>&1
