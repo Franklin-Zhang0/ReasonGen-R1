@@ -288,6 +288,9 @@ class DataParallelPPOActor(BasePPOActor):
                     response_length = responses.size(1)
                     attention_mask = data['attention_mask']
                     response_mask = attention_mask[:, -response_length:]
+                    if self.config.ignore_img_start:
+                        img_start_mask = responses == self.config.image_start_token_id
+                        response_mask = response_mask & (~img_start_mask)
                     old_log_prob = data['old_log_probs']
                     advantages = data['advantages']
                     uids = data['uid']

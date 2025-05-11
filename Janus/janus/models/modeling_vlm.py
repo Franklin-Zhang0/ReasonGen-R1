@@ -393,7 +393,8 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                  generation_config=None, 
                  output_scores=False,
                  return_dict_in_generate=True, 
-                 use_cache=True
+                 use_cache=True,
+                 early_stop_prob=0.0,
                 ):
         if generation_config is None:
             generation_config = {}
@@ -404,6 +405,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
         position_ids = torch.clip(torch.cumsum(attention_mask, dim=-1) - 1, min=0, max=None).cuda()
         inputs_embeds = self.language_model.get_input_embeddings()(input_ids)
         generated_length = 0
+        early_stopped = torch.zeros((1,), dtype=torch.int).cuda()
         for i in range(max_new_tokens):
             outputs = self.language_model.model(inputs_embeds=inputs_embeds, 
                                                 attention_mask=attention_mask,
@@ -426,11 +428,13 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             ended = ended | (next_token == eos_token_id)
             ended = ended | (next_token == image_start_token_id)
             generated_length += 1
-            local_ended = ended.all().to(torch.int)
+            early_stoped = early_stopped | (torch.rand(1).cuda() < early_stop_prob)
+            local_ended = ended.all().to(torch.int) 
+            local_ended = torch.maximum(local_ended, early_stoped.to(torch.int))
             if dist.is_initialized():
                 dist.all_reduce(local_ended, op=dist.ReduceOp.MIN)
-                if local_ended == 1:
-                    break
+            if local_ended == 1:
+                break
         
         generated_tokens = generated_tokens[:, :generated_length]
         output = AttrDict(
@@ -452,7 +456,8 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                  generation_config=None, 
                  output_scores=False, 
                  return_dict_in_generate=True, 
-                 use_cache=True
+                 use_cache=True,
+                 text_early_stop_prob=0.0,
                 ):
         if generation_config is None:
             generation_config = {}
@@ -472,7 +477,8 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                                         generation_config=generation_config,
                                         output_scores=output_scores,
                                         return_dict_in_generate=return_dict_in_generate,
-                                        use_cache=use_cache
+                                        use_cache=use_cache,
+                                        early_stop_prob=text_early_stop_prob,
                                         )
         
         text_generated_tokens = text_output.generated_tokens
@@ -601,6 +607,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
                                     )
         
         seq = img_output.sequences
+        text_sequence = text_output.sequences
         seq_img_mask = img_output.seq_img_mask
         gen_img = img_output.gen_img
         
@@ -610,6 +617,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             text_gen_tokens=generated_tokens,
             img_tokens=img_output.generated_tokens,
             sequences=seq,
+            text_seq=text_sequence,
             seq_img_mask=seq_img_mask,
             gen_img=gen_img,
         )

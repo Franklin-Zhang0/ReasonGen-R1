@@ -67,7 +67,8 @@ python3 -m verl.trainer.image_generation_rl \
     actor_rollout_ref.rollout.micro_batch_size=4 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=4 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
-    actor_rollout_ref.rollout.cot_generate=False \
+    actor_rollout_ref.rollout.cot_generate=True \
+    actor_rollout_ref.actor.ignore_img_start=True \
     actor_rollout_ref.rollout.val_kwargs.do_sample=True \
     algorithm.kl_ctrl.kl_coef=0.000 \
     algorithm.filter_groups.enable=True \
