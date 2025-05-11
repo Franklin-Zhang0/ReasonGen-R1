@@ -272,16 +272,26 @@ class JanusTextOnlyRLHFDataset(Dataset):
         self.system_prompt = system_prompt
         self.cot_generate = cot_generate
         self.prompt_template = prompt_template
+        self.data_source_list = []
         if self.prompt_template is None:
             self.prompt_template = "A photo of {}."
         
         self.prompts = []
         for i, parquet_file in enumerate(parquet_files):
             self.parquet_files[i] = os.path.expanduser(parquet_file)
+            file_name = os.path.basename(self.parquet_files[i]).replace('.txt', '')
             if self.parquet_files[i].endswith('.txt'):
                 with open(self.parquet_files[i], 'r') as f:
                     prompts = f.readlines()
-                self.prompts.extend([prompt.strip() for prompt in prompts])
+                for prompt in prompts:
+                    if self.filter_overlong_prompts:
+                        if len(tokenizer.encode(prompt, add_special_tokens=False))+10 > self.max_prompt_length: # +5 for <user>, <assistant>, <img_start>, etc..
+                            continue
+                    self.prompts.append(prompt.strip())
+                    self.data_source_list.append(file_name)
+                        
+                # self.prompts.extend([prompt.strip() for prompt in prompts])
+                # self.data_source_list.extend([file_name] * len(prompts))
             else:
                 raise ValueError(f"Unsupported file format: {self.parquet_files[i]}")
         
@@ -343,6 +353,7 @@ class JanusTextOnlyRLHFDataset(Dataset):
         row_dict['attention_mask'] = attention_mask
         row_dict['position_ids'] = position_ids
         row_dict['raw_prompt_ids'] = self.tokenizer.encode(raw_prompt, add_special_tokens=False)
+        row_dict['data_source'] = self.data_source_list[item]
 
         # encode prompts without chat template
         if self.return_raw_chat:
