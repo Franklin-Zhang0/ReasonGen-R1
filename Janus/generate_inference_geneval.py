@@ -101,7 +101,7 @@ available_models['100k_sample_short_7B_bs128_lr1e-5_image_only-0505_1990_lora_39
 
 available_models['100k_sample_short_7B_bs128_lr1e-5_image_only-0505_1990_lora_796']={
     "model_path":"/blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only-0505/global_step_1990",
-    "lora_path":"blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only-0505/text_lora/global_step_796/",
+    "lora_path":"/blob/franklin/ckpt/image_rl/janus_sft/100k_sample_short/100k_sample_short_7B_bs128_lr1e-5_image_only-0505/text_lora/global_step_796/",
     "use_cot": True
 }
 
@@ -296,6 +296,7 @@ def generate_from_geneval_jsonl(
                 continue
         with open(os.path.join(meta_data_path), "w") as f:
             f.write(json.dumps(data))
+        samples = []
         if cot:
             for num_gen in range(4//parallel_size):
                 cots, visual_img=inference_from_prompt_cot(prompt)
@@ -304,10 +305,13 @@ def generate_from_geneval_jsonl(
                 for i in range(len(cots)):
                     with open(os.path.join(cot_out_dir, f"{i+num_gen*4//parallel_size:04d}.txt"), "w") as f:
                         f.write(cots[i])
+                    samples.append(visual_img[i])
         else:
             visual_img=inference_from_prompt(prompt)
+            for i in range(parallel_size):
+                samples.append(visual_img[i])
         os.makedirs(sample_out_dir, exist_ok=True)
-        for i in range(parallel_size):
+        for i in range(4):
             save_path = os.path.join(sample_out_dir, f"{i:04d}.png")
             PIL.Image.fromarray(visual_img[i]).save(save_path)
 
