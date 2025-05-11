@@ -630,10 +630,8 @@ def prompt_augmentation(data, keys):
         shuffled_tags:list[str] = data['augmented_prompts'][selected_key]
         return ",".join(shuffled_tags)
     elif selected_key == 'object_prompts':
-        num_objects = len(data['augmented_prompts'][selected_key])
-        selected_num_objects = random.randint(1, num_objects)
-        objects = data['augmented_prompts'][selected_key][:selected_num_objects]
-        return " and ".join(objects)
+        objects = data['augmented_prompts'][selected_key]
+        return ", ".join(objects[:-1]) + " and " + objects[-1]
     else:
         raise NotImplementedError(f'Unknown augmentation key {selected_key}')
 
