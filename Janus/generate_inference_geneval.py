@@ -286,16 +286,7 @@ def generate_from_geneval_jsonl(
         data = json.loads(line)
         text = data["prompt"]
         prompt = get_prompt(text, cot=cot)
-        this_out_dir = os.path.join(out_dir,f"{idx:05d}")
-        os.makedirs(this_out_dir, exist_ok=True)
-        meta_data_path = os.path.join(this_out_dir, "metadata.jsonl")
-        sample_out_dir = os.path.join(this_out_dir, "samples")
-        if os.path.exists(sample_out_dir):
-            png_list = os.listdir(sample_out_dir)
-            if len(png_list) == parallel_size:
-                continue
-        with open(os.path.join(meta_data_path), "w") as f:
-            f.write(json.dumps(data))
+        
         samples = []
         if cot:
             for num_gen in range(4//parallel_size):
@@ -310,10 +301,21 @@ def generate_from_geneval_jsonl(
             visual_img=inference_from_prompt(prompt)
             for i in range(parallel_size):
                 samples.append(visual_img[i])
+        
+        this_out_dir = os.path.join(out_dir,f"{idx:05d}")
+        os.makedirs(this_out_dir, exist_ok=True)
+        meta_data_path = os.path.join(this_out_dir, "metadata.jsonl")
+        sample_out_dir = os.path.join(this_out_dir, "samples")
+        if os.path.exists(sample_out_dir):
+            png_list = os.listdir(sample_out_dir)
+            if len(png_list) >= 4:
+                continue
+        with open(os.path.join(meta_data_path), "w") as f:
+            f.write(json.dumps(data))
         os.makedirs(sample_out_dir, exist_ok=True)
         for i in range(4):
             save_path = os.path.join(sample_out_dir, f"{i:04d}.png")
-            PIL.Image.fromarray(visual_img[i]).save(save_path)
+            PIL.Image.fromarray(samples[i]).save(save_path)
 
 
 if __name__ == "__main__":
