@@ -1196,7 +1196,7 @@ class RewardModelWorker(Worker):
                 
             first_idx = indices[0]
             # extract raw prompt
-            prompt = data.non_tensor_batch['raw_prompt'][first_idx][0]['content']
+            prompt = data.non_tensor_batch['raw_prompt']
             imgs = []
             for idx in indices:
                 img = data.batch['gen_img'][idx]
