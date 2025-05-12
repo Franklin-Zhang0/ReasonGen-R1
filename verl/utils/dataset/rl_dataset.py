@@ -357,7 +357,7 @@ class JanusTextOnlyRLHFDataset(Dataset):
 
         # encode prompts without chat template
         if self.return_raw_chat:
-            row_dict['raw_prompt'] = chat
+            row_dict['raw_prompt'] = self.prompts[item]
 
         # add index for each prompt
         index = row_dict.get("extra_info", {}).get("index", 0)
