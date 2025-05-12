@@ -237,6 +237,8 @@ algorithm:
     enable: False
     max_num_gen_batches: 4
     metric: seq_final_reward
+  max_token_start: -1 # >0 value to enable
+  max_token_add_per_step: 0
 
 trainer:
   balance_batch: False

@@ -847,7 +847,11 @@ class RayPPOTrainer(object):
                         batch_keys=['input_ids', 'attention_mask', 'position_ids'],
                         non_tensor_batch_keys=['raw_prompt_ids'],
                     )
-
+                
+                if self.config.algorithm.max_token_start > 0:
+                    assert self.config.algorithm.max_token_add_per_step > 0, "max_token_add_per_step must be larger than 0 when max_token_start is larger than 0"
+                    response_length = int(self.config.algorithm.max_token_start + self.global_steps * self.config.algorithm.max_token_add_per_step)
+                    gen_batch.meta_info['response_length'] = min(response_length, self.config.data.max_response_length)
                 is_last_step = self.global_steps >= self.total_training_steps
 
                 with _timer('step', timing_raw):
