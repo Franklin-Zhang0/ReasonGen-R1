@@ -88,7 +88,7 @@ class TaskRunner:
         local_path = copy_to_local(config.actor_rollout_ref.model.path)
 
         # instantiate tokenizer
-        if "Janus" not in local_path:
+        if "janus" not in local_path.lower():
             from verl.utils import hf_tokenizer, hf_processor
             tokenizer = hf_tokenizer(local_path)
             processor = hf_processor(local_path, use_fast=True)  # used for multimodal LLM, could be none
