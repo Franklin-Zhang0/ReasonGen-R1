@@ -162,6 +162,8 @@ class DataParallelPPOActor(BasePPOActor):
                 logits = output['logits'] if isinstance(output, dict) else output.logits
                 logits.div_(temperature)
                 logits = logits[:, -response_length - 1:-1, :]  # (bsz, response_length, vocab_size)
+                # clamp logits to avoid overflow
+                logits = torch.clamp(logits, min=-30.0, max=30.0)
                 log_probs = logprobs_from_logits(logits, micro_batch['responses'])
                 entropy = verl_F.entropy_from_logits(logits)  # (bsz, response_length)
 
@@ -331,6 +333,7 @@ class DataParallelPPOActor(BasePPOActor):
                         loss = policy_loss * (len(data) / self.config.ppo_mini_batch_size)
                     else:
                         loss = policy_loss / self.gradient_accumulation
+                        loss = torch.nan_to_num(loss, nan=0.0)
                     loss.backward()
 
                     data = {
