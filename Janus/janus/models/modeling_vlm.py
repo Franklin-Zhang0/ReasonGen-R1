@@ -524,6 +524,7 @@ class MultiModalityCausalLM(MultiModalityPreTrainedModel):
             if cat_lengths[i] == 0: continue
             sequences[i, :-cat_lengths[i]] = sequences[i, cat_lengths[i]:].clone()
             sequences[i, -cat_lengths[i]:] = pad_token_id
+            sequences[i, -cat_lengths[i]] = eos_token_id
             seq_img_mask[i, :-cat_lengths[i]] = seq_img_mask[i, cat_lengths[i]:].clone()
             seq_img_mask[i, -cat_lengths[i]:] = False
         gen_img = img_output.gen_img
