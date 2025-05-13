@@ -7,6 +7,7 @@ from janus.models import MultiModalityCausalLM, VLChatProcessor
 import json
 from tqdm import tqdm
 import tyro
+import shutil
 
 import warnings
 warnings.filterwarnings("ignore", category=UserWarning, message=".*?Your .*? set is empty.*?")
@@ -113,12 +114,20 @@ def get_args():
     @dataclass
     class Args:
         model_name: str
+        setting: str
 
     return tyro.cli(Args)
 args = get_args()
 model_name = args.model_name
 # out_dir = os.path.expanduser(f"~/project/Image-RL/geneval_out_result/geneval_output_{model_name}")
-out_dir = os.path.expanduser(f"~/project/T2I-CompBench/examples/samples")
+setting = args.setting
+out_dir = os.path.expanduser(f"~/project/T2I-CompBench/examples/outputs/{model_name}/{setting}/samples")
+if setting[-3:]== "val":
+    possible_path = os.path.expanduser(f"~/project/T2I-CompBench/examples/outputs/{model_name}/{setting[:-4]}/samples")
+    assert os.path.exists(possible_path), f"possible path {possible_path} does not exist"
+txt_path = os.path.expanduser(f"~/project/T2I-CompBench/examples/dataset/{setting}.txt")
+print("model name: ", model_name)
+print("prompt path: ", txt_path)
 model_path = available_models[model_name]["model_path"]
 use_cot = available_models[model_name]["use_cot"]
 use_two_stage = "two_stage" in available_models[model_name]
@@ -162,9 +171,17 @@ cot_assistant = """
 
 # template = "A photo of {}. Generate a detailed description of how to create an image strictly based on the information in the caption. Do not add extra elements or creative interpretation beyond the raw caption. Pay close attention to all specific details in the caption—such as color, position, number, orientation, and object types. Your output should be a breakdown of how to create the image, suitable for guiding an image generation model. Please directly output the reasoning steps."
 
-def get_prompt(text, cot = False):
-    template = "A photo of {}. Output a richly detailed prompt: "
-    text = text.replace("A photo of", "").replace("a photo of", "").strip() # avoid redundant a photo of
+def get_prompt(text, cot = False, photo_template = False):
+    # template = "A photo of {}. Output a richly detailed prompt: "
+    text = text.replace("A photo of ", "").replace("a photo of ", "").strip() # avoid redundant a photo of
+    if photo_template:
+        if cot:
+            template = "A photo of {}. Output a richly detailed prompt: "
+        else:
+            template = "A photo of {}. "
+    else:
+        template = "{}. "
+
     if cot:
         conversation = [
             {
@@ -177,7 +194,7 @@ def get_prompt(text, cot = False):
         conversation = [
             {
                 "role": "<|User|>",
-                "content": "A photo of {}".format(text),
+                "content": template.format(text),
             },
             {"role": "<|Assistant|>", "content": ""},
         ]
@@ -325,13 +342,15 @@ def generate_from_geneval_jsonl(
     with open(txt_path, "r") as f:
         lines = f.readlines()
     lines = [line.strip() for line in lines]
-    print('num processes: ', accelerator.num_processes)
+    # print('num processes: ', accelerator.num_processes)
     if accelerator.num_processes > 1:
         ids = list(range(accelerator.process_index, len(lines)//accelerator.num_processes*accelerator.num_processes, accelerator.num_processes))
         lines = lines[accelerator.process_index:len(lines)//accelerator.num_processes*accelerator.num_processes:accelerator.num_processes]
     else:
         ids = list(range(len(lines)))
-
+    if not os.path.exists(out_dir):
+        os.makedirs(out_dir, exist_ok=True)
+    out_existed_files = os.listdir(out_dir)
     for idx, line in tqdm(zip(ids, lines), total=len(lines)):
         # data = json.loads(line)
         text = line
@@ -341,8 +360,33 @@ def generate_from_geneval_jsonl(
             prompt = get_prompt(text, cot=cot)
             img_sft_format = None
         this_out_png_path = os.path.join(out_dir,f"{text}_{idx:06d}.png")
-        if os.path.exists(this_out_png_path):
+        
+        # if there's a file in out_existed_files starting with the same text, skip it
+        existed=False
+        for file in out_existed_files:
+            if file.startswith(text):
+                if file== f"{text}_{idx:06d}.png":
+                    existed=True
+                    continue
+                if existed:
+                    # remove the file
+                    os.remove(os.path.join(out_dir, file))
+                else:
+                    os.rename(os.path.join(out_dir, file), this_out_png_path)
+                    existed=True
+        if existed:
             continue
+        if setting[-3:] == "val":
+            possible_list = os.listdir(possible_path)
+            for file in possible_list:
+                if file.startswith(text):
+                    # copy the file to out_dir
+                    shutil.copy(os.path.join(possible_path, file), this_out_png_path)
+                    existed=True
+                    break
+            if existed:
+                continue
+
         # os.makedirs(this_out_dir, exist_ok=True)
         # meta_data_path = os.path.join(this_out_dir, "metadata.jsonl")
         # sample_out_dir = os.path.join(this_out_dir, "samples")
@@ -371,7 +415,7 @@ def generate_from_geneval_jsonl(
 if __name__ == "__main__":
     generate_from_geneval_jsonl(
         # "~/project/geneval/prompts/evaluation_metadata.jsonl",
-        "~/project/T2I-CompBench/examples/dataset/texture_val.txt",
+        txt_path,
         vl_gpt,
         vl_chat_processor,
         # prompt,

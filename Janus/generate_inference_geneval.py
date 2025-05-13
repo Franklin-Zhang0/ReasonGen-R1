@@ -106,6 +106,30 @@ available_models["200k_sample_aug_long_7B_bs128_lr1e-5_all_1.0-two_stage-0510_16
     "two_stage": True
 }
 
+available_models["200k_sample_aug_long_7B_bs128_lr2e-4-all_1.0-new_prompt_aug-0511_1650"]={
+    "model_path":"/blob/franklin/ckpt/image_rl/janus_sft/200k_sample_aug_long/200k_sample_aug_long_7B_bs128_lr2e-4-all_1.0-new_prompt_aug-0511/global_step_1650",
+    "use_cot": True,
+    "template": "A photo of {}. Expand the above short caption into a richly detailed image‐generation prompt by specifying vivid colors, exact quantities, precise positions, immersive background elements, and an evocative mood: "
+}
+
+available_models["image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_cot_no_kl_lr_5e-6_3_ds_train_ds_with_sft_50"]={
+    "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_cot_no_kl_lr_5e-6_3_ds_train_ds_with_sft/global_step_50/actor/huggingface",
+    "use_cot": True,
+    'template': "A photo of {}. Expand the above short caption into a richly detailed image‐generation prompt by specifying vivid colors, exact quantities, precise positions, immersive background elements, and an evocative mood: "
+}
+
+available_models["image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_cot_lr_5e-6_3_ds_train_ds_600-1024_400"]={
+    "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_cot_lr_5e-6_3_ds_train_ds_600-1024/global_step_400/actor/huggingface",
+    "use_cot": True,
+    "template": "A photo of {}. Output a detailed prompt for image generation:"
+}
+
+available_models["image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_cot_lr_5e-6_3_ds_train_ds_600-1024_400"]={
+    "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_cot_lr_5e-6_3_ds_train_ds_600-1024/global_step_400/actor/huggingface",
+    "use_cot": True,
+    "template": "A photo of {}. Output a detailed prompt for image generation:"
+}
+
 # get tyro arguments
 def get_args():
     from dataclasses import dataclass
@@ -161,8 +185,13 @@ cot_assistant = """
 
 # template = "A photo of {}. Generate a detailed description of how to create an image strictly based on the information in the caption. Do not add extra elements or creative interpretation beyond the raw caption. Pay close attention to all specific details in the caption—such as color, position, number, orientation, and object types. Your output should be a breakdown of how to create the image, suitable for guiding an image generation model. Please directly output the reasoning steps."
 
+if "template" in available_models[model_name]:
+    template = available_models[model_name]["template"]
+else:
+    template = "A photo of {}. A richly detailed prompt: "
+
+
 def get_prompt(text, cot = False):
-    template = "A photo of {}. Output a richly detailed prompt: "
     text = text.replace("A photo of", "").replace("a photo of", "").strip() # avoid redundant a photo of
     if cot:
         conversation = [
@@ -223,7 +252,7 @@ def generate_from_geneval_jsonl(
     # prompt: str,
     out_dir: str,
     temperature: float = 1,
-    parallel_size: int = 4,
+    parallel_size: int = 1,
     cfg_weight: float = 5.0,
     image_token_num_per_image: int = 576,
     img_size: int = 384,
@@ -344,6 +373,11 @@ def generate_from_geneval_jsonl(
         if os.path.exists(sample_out_dir):
             png_list = os.listdir(sample_out_dir)
             if len(png_list) == parallel_size:
+                continue
+            elif len(png_list) > parallel_size:
+                # remove extra png
+                for i in range(parallel_size, len(png_list)):
+                    os.remove(os.path.join(sample_out_dir, png_list[i]))
                 continue
         with open(os.path.join(meta_data_path), "w") as f:
             f.write(json.dumps(data))
