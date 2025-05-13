@@ -835,6 +835,15 @@ class RayPPOTrainer(object):
                 timing_raw = {}
 
                 batch: DataProto = DataProto.from_single_dict(batch_dict)
+                
+                if num_gen_batches > 0: # if we have generated before, only generate numbers that is enough to fill the batch
+                    num_left_to_fill = self.config.data.train_batch_size - num_prompt_in_batch
+                    num_to_gen = 1 << (num_left_to_fill.bit_length()+1) # round up to the next power of 2
+                    num_to_gen = min(num_to_gen, self.config.data.train_batch_size)
+                    mask = torch.zeros(self.config.data.train_batch_size, dtype=torch.bool)
+                    mask[:num_to_gen] = True
+                    batch = batch.apply_mask(mask)
+                    print(f'num_left_to_fill: {num_left_to_fill}, num_to_gen: {num_to_gen}')
 
                 # pop those keys for generation
                 if 'multi_modal_inputs' in batch.non_tensor_batch.keys():
@@ -947,6 +956,19 @@ class RayPPOTrainer(object):
                                     
 
                             # batch = batch[kept_traj_idxs]
+                            if torch.sum(mask) == 0:
+                                print(f'No prompt left after filtering. {num_prompt_in_batch=}')
+                                num_gen_batches += 1
+                                max_num_gen_batches = self.config.algorithm.filter_groups.max_num_gen_batches
+                                
+                                if max_num_gen_batches <= 0 or num_gen_batches < max_num_gen_batches:
+                                    print(f'{num_gen_batches=}. Keep generating...')
+                                    continue
+                                else:
+                                    raise ValueError(
+                                        f'{num_gen_batches=} >= {max_num_gen_batches=}. Generated too many. Please check your data.'
+                                    )
+                                    
                             batch = batch.apply_mask(mask)
                             if old_batch is None:
                                 old_batch = batch
