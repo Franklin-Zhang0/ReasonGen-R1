@@ -332,8 +332,6 @@ class DataParallelPPOActor(BasePPOActor):
                         # update the adaptive entropy coeff
                         self.adaptive_entropy_coeff.update(entropy=entropy_loss.detach())
                         metrics['actor/entropy_coeff'] = entropy_coeff
-                        print(f"actor/entropy_coeff: {entropy_coeff}, "
-                              f"actor/entropy_loss: {entropy_loss.detach().item()}")
 
                     # compute policy loss
                     policy_loss = pg_loss - entropy_loss * entropy_coeff
