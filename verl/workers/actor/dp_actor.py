@@ -32,7 +32,7 @@ from verl.utils.seqlen_balancing import rearrange_micro_batches, get_reverse_idx
 import verl.utils.torch_functional as verl_F
 
 from flash_attn.bert_padding import pad_input, unpad_input, rearrange, index_first_axis
-
+from verl.utils.adaptive_entropy_coeff import AdaptiveEntropyCoefficient
 __all__ = ['DataParallelPPOActor']
 
 
@@ -51,6 +51,18 @@ class DataParallelPPOActor(BasePPOActor):
         self.cfg_weight = self.config.get('cfg_weight', 5.0)
         self.detach_uncond = self.config.get('detach_uncond', False)
         self.use_remove_padding = self.config.get('use_remove_padding', False)
+        if self.config.get('adaptive_entropy_coeff',{}).get('enable', False): # only used for actor
+            self.use_adaptive_entropy_coeff = True
+            self.adaptive_entropy_coeff = AdaptiveEntropyCoefficient(
+                initial_alpha = self.config.adaptive_entropy_coeff.get('initial_alpha', 0.0),
+                target_entropy = self.config.adaptive_entropy_coeff.get('target_entropy', -1.0),
+                lr = self.config.adaptive_entropy_coeff.get('lr', 1e-3),
+                max_coeff= self.config.adaptive_entropy_coeff.get('max_coeff', 1e-3),
+                min_coeff= self.config.adaptive_entropy_coeff.get('min_coeff', -1e-3),
+            )
+        else:
+            self.use_adaptive_entropy_coeff = False
+               
         print(f'Actor use_remove_padding={self.use_remove_padding}')
         print(f'Actor cfg_weight={self.cfg_weight}')
         print(f'Actor detach_uncond={self.detach_uncond}')
@@ -298,7 +310,6 @@ class DataParallelPPOActor(BasePPOActor):
                     uids = data['uid']
 
                     clip_ratio = self.config.clip_ratio
-                    entropy_coeff = self.config.entropy_coeff
 
                     # all return: (bsz, response_length)
                     entropy, log_prob = self._forward_micro_batch(micro_batch=data, temperature=temperature)
@@ -312,6 +323,17 @@ class DataParallelPPOActor(BasePPOActor):
                                                                                   algo_name=self.config.algo_name)
                     # compute entropy loss from entropy
                     entropy_loss = verl_F.masked_mean(entropy, response_mask)
+                    
+                    if not self.use_adaptive_entropy_coeff:
+                        entropy_coeff = self.config.entropy_coeff
+                    else:
+                        # update the adaptive entropy coeff
+                        entropy_coeff = -self.adaptive_entropy_coeff.alpha.detach().item()
+                        # update the adaptive entropy coeff
+                        self.adaptive_entropy_coeff.update(entropy=entropy_loss.detach())
+                        metrics['actor/entropy_coeff'] = entropy_coeff
+                        print(f"actor/entropy_coeff: {entropy_coeff}, "
+                              f"actor/entropy_loss: {entropy_loss.detach().item()}")
 
                     # compute policy loss
                     policy_loss = pg_loss - entropy_loss * entropy_coeff
