@@ -831,6 +831,14 @@ class RayPPOTrainer(object):
             num_prompt_in_batch = 0
             num_gen_batches = 0
             for batch_dict in self.train_dataloader:
+                if self.global_steps <= self.config.trainer.start_step:
+                    if self.config.algorithm.filter_groups.enable and num_gen_batches == 0:
+                        num_gen_batches+=1 # in most cases, we will have 1 additional step for filtering
+                    else:
+                        self.global_steps += 1
+                        num_gen_batches = 0
+                    print(f'global_steps: {self.global_steps}, start_step: {self.config.trainer.start_step}, skipping this batch')    
+                    continue
                 metrics = {}
                 timing_raw = {}
 

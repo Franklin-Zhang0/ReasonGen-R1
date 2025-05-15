@@ -42,8 +42,8 @@ actor_rollout_ref:
       init_alpha: 0.0
       target_entropy: 6.0
       lr: 1e-5
-      min_coeff: -1e-3
-      max_coeff: 1e-3
+      min_coeff: -1e-2
+      max_coeff: 1e-2
     use_kl_loss: False # True for GRPO
     use_torch_compile: True # False to disable torch compile
     kl_loss_coef: 0.001 # for grpo
@@ -251,6 +251,7 @@ trainer:
   balance_batch: False
   total_epochs: 30
   max_steps: 200
+  start_step: 0
   total_training_steps: null
   project_name: verl_examples
   experiment_name: gsm8k
