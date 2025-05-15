@@ -18,9 +18,13 @@ class AdaptiveEntropyCoefficient:
     def alpha(self):
         # α = sinh(ψ), can be negative
         alpha = torch.sinh(self.psi)
-        # clamp to min/max
-        alpha = torch.clamp(alpha, min=self.min_coeff, max=self.max_coeff)
         return alpha
+    
+    def get_alpha(self):
+        # α = sinh(ψ), can be negative
+        alpha = torch.sinh(self.psi)
+        alpha = torch.clamp(alpha, min=self.min_coeff, max=self.max_coeff)
+        return alpha.detach()
     
     def update(self, entropy):
         ent = entropy.detach()
@@ -29,5 +33,7 @@ class AdaptiveEntropyCoefficient:
         self.opt.zero_grad()
         loss.backward()
         self.opt.step()
+        # compute psi based on clipped alpha
+        self.psi.data = torch.asinh(self.get_alpha())
         return loss.item()
 
