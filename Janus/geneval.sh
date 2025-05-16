@@ -39,7 +39,9 @@ all_model_name_list=(
     # "200k_sample_aug_long_7B_bs128_lr1e-5_image_1.0_text_0.5-free_template-0509_1650"
     # "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_3_ds_400"
     # "200k_sample_aug_long_7B_bs128_lr1e-5_image_1.0_text_2.0_start_0.0-free_template-0509_1650"
-    "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_cot_no_kl_lr_5e-6_3_ds_train_ds_with_sft_50"
+    # "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_cot_no_kl_lr_5e-6_3_ds_train_ds_with_sft_50"
+
+    "grpo_8_rollout_bs32_mini16_cfg_1.0_cot_lr_5e-6_3_ds_sft_2_batch_subsample_fixed_entropy_-0.001_50"
     )
 
 model_name_list=(
@@ -81,7 +83,8 @@ model_name_list=(
     # "test_two_stage"
     # "200k_sample_aug_long_7B_bs128_lr1e-4-image_0.1_0_text_1.0_image_start_token_0.5-0510_1650"
     # "200k_sample_aug_long_7B_bs128_lr2e-4-all_1.0-new_prompt_aug-0511_1650"
-    "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_cot_no_kl_lr_5e-6_3_ds_train_ds_with_sft_50"
+    # "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_cot_no_kl_lr_5e-6_3_ds_train_ds_with_sft_50"
+    "grpo_8_rollout_bs32_mini16_cfg_1.0_cot_lr_5e-6_3_ds_sft_2_batch_subsample_fixed_entropy_-0.001_50"
     # "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_3_ds_400"
 
     # "image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_no_kl_lr_5e-6_no_detach_strict_prompt_no_a_photo_of_180"

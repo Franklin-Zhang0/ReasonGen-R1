@@ -130,6 +130,12 @@ available_models["image_only_grpo_8_rollout_bs32_mini16_cfg_1.0_cot_lr_5e-6_3_ds
     "template": "A photo of {}. Output a detailed prompt for image generation:"
 }
 
+
+available_models["grpo_8_rollout_bs32_mini16_cfg_1.0_cot_lr_5e-6_3_ds_sft_2_batch_subsample_fixed_entropy_-0.001_50"]={
+    "model_path":"/blob/franklin/ckpt/image_rl/verl_janus_test/grpo_8_rollout_bs32_mini16_cfg_1.0_cot_lr_5e-6_3_ds_sft_2_batch_subsample_fixed_entropy_-0.001/global_step_50/actor/huggingface",
+    "use_cot": True,
+}
+
 # get tyro arguments
 def get_args():
     from dataclasses import dataclass
@@ -142,6 +148,7 @@ def get_args():
 args = get_args()
 model_name = args.model_name
 out_dir = os.path.expanduser(f"~/project/Image-RL/geneval_out_result/geneval_output_{model_name}")
+
 model_path = available_models[model_name]["model_path"]
 use_cot = available_models[model_name]["use_cot"]
 use_two_stage = "two_stage" in available_models[model_name]
@@ -252,7 +259,7 @@ def generate_from_geneval_jsonl(
     # prompt: str,
     out_dir: str,
     temperature: float = 1,
-    parallel_size: int = 1,
+    parallel_size: int = 4,
     cfg_weight: float = 5.0,
     image_token_num_per_image: int = 576,
     img_size: int = 384,
@@ -268,7 +275,7 @@ def generate_from_geneval_jsonl(
         input_ids = torch.LongTensor(input_ids).cuda()
         attention_mask = torch.ones((len(input_ids)), dtype=torch.bool).cuda()
         do_sample = True
-        max_new_tokens = 2048
+        max_new_tokens = 1024
         eos_token_id = vl_chat_processor.tokenizer.eos_token_id
         pad_token_id = vl_chat_processor.tokenizer.pad_token_id
         image_start_token_id = vl_chat_processor.image_start_id

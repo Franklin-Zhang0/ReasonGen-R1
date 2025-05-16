@@ -257,7 +257,7 @@ def generate_from_geneval_jsonl(
         input_ids = torch.LongTensor(input_ids).cuda()
         attention_mask = torch.ones((len(input_ids)), dtype=torch.bool).cuda()
         do_sample = True
-        max_new_tokens = 2048
+        max_new_tokens = 1024
         eos_token_id = vl_chat_processor.tokenizer.eos_token_id
         pad_token_id = vl_chat_processor.tokenizer.pad_token_id
         image_start_token_id = vl_chat_processor.image_start_id
