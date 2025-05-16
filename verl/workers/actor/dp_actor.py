@@ -53,12 +53,19 @@ class DataParallelPPOActor(BasePPOActor):
         self.use_remove_padding = self.config.get('use_remove_padding', False)
         if self.config.get('adaptive_entropy_coeff',{}).get('enable', False): # only used for actor
             self.use_adaptive_entropy_coeff = True
-            self.adaptive_entropy_coeff = AdaptiveEntropyCoefficient(
-                initial_alpha = self.config.adaptive_entropy_coeff.get('initial_alpha', 0.0),
-                target_entropy = self.config.adaptive_entropy_coeff.get('target_entropy', -1.0),
-                lr = self.config.adaptive_entropy_coeff.get('lr', 1e-3),
-                max_coeff= self.config.adaptive_entropy_coeff.get('max_coeff', 1e-3),
-                min_coeff= self.config.adaptive_entropy_coeff.get('min_coeff', -1e-3),
+            self.text_adaptive_entropy_coeff = AdaptiveEntropyCoefficient(
+                initial_alpha = self.config.adaptive_entropy_coeff.text.get('initial_alpha', 0.0),
+                target_entropy = self.config.adaptive_entropy_coeff.text.get('target_entropy', -1.0),
+                lr = self.config.adaptive_entropy_coeff.text.get('lr', 1e-3),
+                max_coeff= self.config.adaptive_entropy_coeff.text.get('max_coeff', 1e-3),
+                min_coeff= self.config.adaptive_entropy_coeff.text.get('min_coeff', -1e-3),
+            )
+            self.img_adaptive_entropy_coeff = AdaptiveEntropyCoefficient(
+                initial_alpha = self.config.adaptive_entropy_coeff.image.get('initial_alpha', 0.0),
+                target_entropy = self.config.adaptive_entropy_coeff.image.get('target_entropy', -1.0),
+                lr = self.config.adaptive_entropy_coeff.image.get('lr', 1e-3),
+                max_coeff= self.config.adaptive_entropy_coeff.image.get('max_coeff', 1e-3),
+                min_coeff= self.config.adaptive_entropy_coeff.image.get('min_coeff', -1e-3),
             )
         else:
             self.use_adaptive_entropy_coeff = False
@@ -301,6 +308,7 @@ class DataParallelPPOActor(BasePPOActor):
                     responses = data['responses']
                     response_length = responses.size(1)
                     attention_mask = data['attention_mask']
+                    seq_img_mask = data['seq_img_mask']
                     response_mask = attention_mask[:, -response_length:]
                     if self.config.ignore_img_start:
                         img_start_mask = responses == self.config.image_start_token_id
@@ -323,18 +331,28 @@ class DataParallelPPOActor(BasePPOActor):
                                                                                   algo_name=self.config.algo_name)
                     # compute entropy loss from entropy
                     entropy_loss = verl_F.masked_mean(entropy, response_mask)
+                    img_entropy_loss = verl_F.masked_mean(entropy, seq_img_mask[..., -response_length:] & response_mask)
+                    text_entropy_loss = verl_F.masked_mean(entropy, ~seq_img_mask[..., -response_length:] & response_mask)
                     
                     if not self.use_adaptive_entropy_coeff:
                         entropy_coeff = self.config.entropy_coeff
                     else:
                         # update the adaptive entropy coeff
-                        entropy_coeff = -self.adaptive_entropy_coeff.alpha.detach().item()
+                        # entropy_coeff = -self.adaptive_entropy_coeff.alpha.detach().item()
                         # update the adaptive entropy coeff
-                        self.adaptive_entropy_coeff.update(entropy=entropy_loss.detach())
-                        metrics['actor/entropy_coeff'] = entropy_coeff
+                        # self.adaptive_entropy_coeff.update(entropy=entropy_loss.detach())
+                        text_entropy_coeff = -self.text_adaptive_entropy_coeff.alpha.detach().item()
+                        img_entropy_coeff = -self.img_adaptive_entropy_coeff.alpha.detach().item()
+                        self.text_adaptive_entropy_coeff.update(entropy=text_entropy_loss.detach())
+                        self.img_adaptive_entropy_coeff.update(entropy=img_entropy_loss.detach())
+                        metrics['actor/text_entropy_coeff'] = self.text_adaptive_entropy_coeff.alpha.detach().item()
+                        metrics['actor/img_entropy_coeff'] = self.img_adaptive_entropy_coeff.alpha.detach().item()
 
                     # compute policy loss
-                    policy_loss = pg_loss - entropy_loss * entropy_coeff
+                    if not self.use_adaptive_entropy_coeff:
+                        policy_loss = pg_loss - entropy_loss * entropy_coeff
+                    else:
+                        policy_loss = pg_loss - text_entropy_loss * text_entropy_coeff - img_entropy_loss * img_entropy_coeff
 
                     if self.config.use_kl_loss:
                         ref_log_prob = data['ref_log_prob']
@@ -358,6 +376,8 @@ class DataParallelPPOActor(BasePPOActor):
 
                     data = {
                         'actor/entropy_loss': entropy_loss.detach().item(),
+                        'actor/text_entropy_loss': text_entropy_loss.detach().item(),
+                        'actor/img_entropy_loss': img_entropy_loss.detach().item(),
                         'actor/pg_loss': pg_loss.detach().item(),
                         'actor/pg_clipfrac': pg_clipfrac.detach().item(),
                         'actor/ppo_kl': ppo_kl.detach().item(),
