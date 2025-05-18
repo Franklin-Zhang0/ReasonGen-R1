@@ -78,3 +78,231 @@ scissors
 teddy bear
 hair drier
 toothbrush
+fire truck
+ambulance
+tractor
+scooter
+monkey
+rabbit
+desk
+bookshelf
+ottoman
+rug
+mirror
+table lamp
+curtain
+pencil
+pen
+notebook
+eraser
+ruler
+calculator
+stapler
+dishwasher
+washing machine
+dryer
+vacuum cleaner
+coffee maker
+blender
+wardrobe
+mailbox
+billboard
+fountain
+smartwatch
+headphones
+speaker
+tablet
+e-reader
+guitar
+drum
+piano
+violin
+saxophone
+trumpet
+recliner
+nightstand
+cupboard
+dumbbell
+skipping rope
+plate
+napkin
+cutting board
+spatula
+whisk
+traffic cone
+fire extinguisher
+trash can
+computer monitor
+printer
+scanner
+router
+digital camera
+picture frame
+doorknob
+window
+floor lamp
+ceiling fan
+air conditioner
+heater
+Radiator
+waffle iron
+kettle
+teapot
+frying pan
+saucepan
+skillet
+pillow
+blanket
+quilt
+ladder
+toolbox
+hammer
+screwdriver
+wrench
+pliers
+salt
+drill
+tape measure
+battery
+charger
+extension cord
+surge protector
+oven mitts
+food processor
+stand mixer
+rice cooker
+slow cooker
+pressure cooker
+garden gnome
+barbecue grill
+basketball
+soccer ball
+football
+doormat
+flashlight
+easel
+chalkboard
+whiteboard
+carpet
+roller skates
+telescope
+microscope
+binoculars
+globe
+solar panel
+windmill
+lighthouse
+helicopter
+submarine
+canoe
+kayak
+sailboat
+unicycle
+segway
+wheelbarrow
+shopping cart
+briefcase
+wallet
+graduation cap
+magnifying glass
+compass
+thermometer
+thermostat
+chandelier
+pinball machine
+arcade game
+drone
+hoverboard
+dartboard
+chess board
+board game
+playing cards
+dice
+robot
+typewriter
+record player
+walkman
+polaroid camera
+stethoscope
+crutches
+wheelchair
+fishing rod
+tent
+sleeping bag
+beehive
+birdhouse
+scarecrow
+cactus
+terrarium
+fish tank
+coral reef
+seashell
+coconut
+pineapple
+watermelon
+pomegranate
+kiwi
+avocado
+cucumber
+eggplant
+olive
+garlic
+onion
+potato
+sweet potato
+popcorn
+pretzel
+croissant
+pancake
+waffle
+churro
+sushi
+taco
+burrito
+nachos
+ice cream cone
+popsicle
+cotton candy
+marshmallow
+jellyfish
+octopus
+squid
+starfish
+crab
+lobster
+shrimp
+butterfly
+dragonfly
+ladybug
+scorpion
+snail
+snake
+lizard
+turtle
+frog
+penguin
+dolphin
+whale
+shark
+koala
+panda
+sloth
+platypus
+unicorn
+dinosaur
+fossil
+meteor
+volcano
+igloo
+pyramid
+castle
+skyscraper
+bridge
+dam
+ferris wheel
+roller coaster
+carousel
+water slide
+swing
+trampoline
+seesaw

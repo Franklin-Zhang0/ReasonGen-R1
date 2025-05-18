@@ -131,7 +131,24 @@ def generate_color_attribution_sample(rng: np.random.Generator):
         ],
         prompt=f"a photo of {with_article(colors[cidx_a])} {classnames[idx_a]} and {with_article(colors[cidx_b])} {classnames[idx_b]}"
     )
-
+    
+def generate_counting_attribution_sample(rng: np.random.Generator, max_count=4):
+    TAG = "counting_attr"
+    idx_a, idx_b = rng.choice(len(classnames), size=2, replace=False)
+    total_num = int(rng.integers(3, max_count, endpoint=True))
+    num_a = int(rng.integers(1, total_num-1, endpoint=True))
+    num_b = total_num - num_a
+    cls_a, cls_b = classnames[idx_a], classnames[idx_b]
+    cls_a = cls_a if num_a == 1 else make_plural(cls_a)
+    cls_b = cls_b if num_b == 1 else make_plural(cls_b)
+    return dict(
+        tag=TAG,
+        include=[
+            {"class": classnames[idx_a], "count": numbers[num_a]},
+            {"class": classnames[idx_b], "count": numbers[num_b]}
+        ],
+        prompt=f"a photo of {numbers[num_a]} {cls_a} and {numbers[num_b]} {cls_b}"
+    )
 
 # Generate evaluation suite
 
@@ -154,6 +171,10 @@ def generate_suite(rng: np.random.Generator, n: int = 100, output_path: str = ""
     # Generate color attribution samples
     for _ in range(n):
         samples.append(generate_color_attribution_sample(rng))
+    # Generate counting attribution samples
+    for _ in range(n):
+        samples.append(generate_counting_attribution_sample(rng, max_count=4))
+    
     # De-duplicate
     unique_samples, used_samples = [], set()
     for sample in samples:
