@@ -392,6 +392,7 @@ class HFSFTDataset(Dataset):
                  truncation='error',
                  template="",
                  prompt_augmentation: List[str]=None, # augment prompt key here
+                 cot_augmentation: List[str]=None, # augment response key here
                  prompt_dropout: float=0.0,
                  two_stage: bool=False,
                  ):
@@ -405,7 +406,7 @@ class HFSFTDataset(Dataset):
         for file in parquet_files:
             if '@' in file:
                 path, split = file.split('@')
-                dataset = load_from_disk(path).train_test_split(test_size=0.1, seed=42)[split]
+                dataset = load_from_disk(path).train_test_split(test_size=0.05, seed=42)[split]
                 if split == 'train':
                     self.image_processing = 'random_crop'
                 else:
@@ -430,6 +431,7 @@ class HFSFTDataset(Dataset):
         self.image_token_num_per_image = 576
         self.img_size = 384   
         self.prompt_augmentation = prompt_augmentation
+        self.cot_augmentation = cot_augmentation
         self.prompt_dropout = prompt_dropout
         self.two_stage = two_stage
         # self.dataset = self.dataset.filter(lambda x: x[self.cot_key] != "")
@@ -472,7 +474,8 @@ class HFSFTDataset(Dataset):
         
         if self.prompt_augmentation is not None:
             prompt = prompt_augmentation(data, self.prompt_augmentation)
-        
+        if self.cot_augmentation is not None:
+            response = cot_augmentation(data, self.cot_augmentation)
         # make the first letter small letter
         # prompt = prompt[0].lower() + prompt[1:]
         # remove the last dot
@@ -635,5 +638,21 @@ def prompt_augmentation(data, keys):
     else:
         raise NotImplementedError(f'Unknown augmentation key {selected_key}')
 
-    
-    
+def cot_augmentation(data, keys):
+    num_augmentations = len(keys)
+    selected_key_idx = random.randint(0, num_augmentations - 1)
+    selected_key = keys[selected_key_idx]
+    selected_key_tag = '<{}>'.format(selected_key) 
+    '''
+    detailed_caption,step_by_step,object_centric,tags,region_descriptions'''
+    if selected_key == 'detailed_caption':
+        return selected_key_tag + data[selected_key]
+    elif selected_key == 'step_by_step':
+        return selected_key_tag + data['augmented_cots'][selected_key]
+    elif selected_key in ['object_centric', 'region_descriptions']:
+        cots = data['augmented_cots'][selected_key]
+        cot = "; ".join(cots)
+        return selected_key_tag + cot
+    elif selected_key == 'tags':
+        return selected_key_tag + ", ".join(data['augmented_cots'][selected_key])
+

@@ -11,6 +11,7 @@ data:
   balance_dp_token: False
   chat_template: null
   prompt_augmentation: null
+  cot_augmentation: null
   prompt_dropout: 0.0
 
 model:
