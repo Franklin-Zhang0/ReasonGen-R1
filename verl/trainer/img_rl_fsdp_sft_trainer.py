@@ -684,6 +684,7 @@ class FSDPSFTTrainer(object):
             os.makedirs(path, exist_ok=True)
             self.model.save_pretrained(path, state_dict=state_dict)
             self.tokenizer.save_pretrained(path)
+            self.processor.save_pretrained(path)
             if self.config.trainer.default_hdfs_dir:
                 hdfs_io.makedirs(self.config.trainer.default_hdfs_dir, exist_ok=True)
                 hdfs_io.copy(src=path, dst=self.config.trainer.default_hdfs_dir, dirs_exist_ok=True)

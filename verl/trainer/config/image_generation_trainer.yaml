@@ -41,16 +41,16 @@ actor_rollout_ref:
       enable: False
       text:
         init_alpha: 0.0
-        target_entropy: 1.0
-        lr: 1e-5
-        min_coeff: -1e-3
-        max_coeff: 1e-3
+        target_entropy: 2.0
+        lr: 5e-5
+        min_coeff: -5e-3
+        max_coeff: 5e-3
       image:
         init_alpha: 0.0
-        target_entropy: 6.0
-        lr: 1e-5
-        min_coeff: -1e-3
-        max_coeff: 1e-3
+        target_entropy: 7.0
+        lr: 5e-5
+        min_coeff: -5e-3
+        max_coeff: 5e-3
     use_kl_loss: False # True for GRPO
     use_torch_compile: True # False to disable torch compile
     kl_loss_coef: 0.001 # for grpo
