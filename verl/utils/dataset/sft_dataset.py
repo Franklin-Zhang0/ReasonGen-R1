@@ -31,7 +31,7 @@ from verl.utils.model import compute_position_id_with_mask
 from verl.utils import hf_tokenizer
 import PIL
 import numpy as np
-from datasets import load_from_disk, concatenate_datasets
+from datasets import load_from_disk, concatenate_datasets, load_dataset
 import io
 import base64
 import random
@@ -406,13 +406,18 @@ class HFSFTDataset(Dataset):
         for file in parquet_files:
             if '@' in file:
                 path, split = file.split('@')
-                dataset = load_from_disk(path).train_test_split(test_size=0.05, seed=42)[split]
+                dataset = self.load_dataset(path)
+                if len(list(dataset.keys())) == 1:
+                    key = list(dataset.keys())[0]
+                    dataset = dataset[key].train_test_split(test_size=0.05, seed=42)[split]
+                else:
+                    dataset = dataset[split]
                 if split == 'train':
                     self.image_processing = 'random_crop'
                 else:
                     self.image_processing = 'center_crop'
             else:
-                dataset = load_from_disk(file)
+                dataset = self.load_dataset(file)
                 self.image_processing = 'random_crop'
             dataset_list.append(dataset)
             
@@ -435,6 +440,13 @@ class HFSFTDataset(Dataset):
         self.prompt_dropout = prompt_dropout
         self.two_stage = two_stage
         # self.dataset = self.dataset.filter(lambda x: x[self.cot_key] != "")
+    
+    def load_dataset(self, path):
+        try:
+            dataset = load_dataset(path)
+        except:
+            dataset = load_from_disk(path)
+        return dataset
         
     def __len__(self):
         return len(self.dataset)

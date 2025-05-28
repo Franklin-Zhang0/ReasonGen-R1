@@ -345,8 +345,8 @@ class DataParallelPPOActor(BasePPOActor):
                         img_entropy_coeff = -self.img_adaptive_entropy_coeff.alpha.detach().item()
                         self.text_adaptive_entropy_coeff.update(entropy=text_entropy_loss.detach())
                         self.img_adaptive_entropy_coeff.update(entropy=img_entropy_loss.detach())
-                        metrics['actor/text_entropy_coeff'] = self.text_adaptive_entropy_coeff.alpha.detach().item()
-                        metrics['actor/img_entropy_coeff'] = self.img_adaptive_entropy_coeff.alpha.detach().item()
+                        metrics['actor/text_entropy_coeff'] = text_entropy_coeff
+                        metrics['actor/img_entropy_coeff'] = img_entropy_coeff
 
                     # compute policy loss
                     if not self.use_adaptive_entropy_coeff:

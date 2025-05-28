@@ -162,7 +162,7 @@ class ActorRolloutRefWorker(Worker):
         log_gpu_memory_usage('Before init from HF AutoModel', logger=logger)
         local_path = copy_to_local(model_path)
         
-        if 'janus' in local_path.lower(): # janus is not in huggingface cfg yet
+        if 'janus' in local_path.lower() or 'reasongen' in local_path.lower(): # janus is not in huggingface cfg yet
             from janus.models import MultiModalityCausalLM, VLChatProcessor
             from omegaconf import OmegaConf
             self.processor = VLChatProcessor.from_pretrained(local_path)
@@ -208,7 +208,7 @@ class ActorRolloutRefWorker(Worker):
 
         with init_context(), warnings.catch_warnings():
             warnings.simplefilter("ignore")
-            if 'janus' not in local_path.lower():
+            if 'janus' not in local_path.lower() and 'reasongen' not in local_path.lower():
                 if type(actor_model_config) in AutoModelForVision2Seq._model_mapping.keys():
                     actor_module_class = AutoModelForVision2Seq
                 else:
