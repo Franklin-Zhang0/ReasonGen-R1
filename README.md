@@ -4,7 +4,8 @@
 
 
 <div align="center">
-<h1>🚀 ReasonGen-R1: Cot for Autoregressive Image generation models through SFT and RL</h1>
+<h1> ReasonGen-R1: <img src="./images/favicon.ico" alt="ReasonGen-R1 Logo" width="48" height="48"><br> Cot for Autoregressive Image generation models through SFT and RL</h1>
+
 
 </div>
 
