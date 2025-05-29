@@ -10,7 +10,7 @@ all_model_name_list=(
     )
 
 model_name_list=(
-    # "Janus-Pro-7B"
+    "Janus-Pro-7B"
     "ReasonGen-R1"
     )
 
