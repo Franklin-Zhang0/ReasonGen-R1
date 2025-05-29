@@ -10,7 +10,7 @@
 
 <div align="center">
 
-  <a href="https://www.deepseek.com/" target="_blank">
+  <a href="https://aka.ms/reasongen" target="_blank">
     <img alt="Homepage" src="https://img.shields.io/badge/HomePage-blue" />
   </a>
   </a>
@@ -157,7 +157,6 @@ We would like to thank <a href="https://github.com/volcengine/verl">Verl</a>, up
 @article{yu2025reasongen,
   title={ReasonGen-R1: Cot for Autoregressive Image generation models through SFT and RL},
   author={Yu Zhang, Yunqi Li, Yifan Yang, Rui Wang， Yuqin Yang, Qi Dai, Jianming Bao, Dongdong Chen, Chong Luo, Lili Qiu},
-  journal={xxxxxx},
   year={2025}
 }
 ```
