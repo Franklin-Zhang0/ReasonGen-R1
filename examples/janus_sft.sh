@@ -5,7 +5,6 @@ TEMPLATE='{}. Output a richly detailed prompt: '
 nproc_per_node=4
 RUN_NAME="janus_sft"
 save_path=ckpt
-# save_path=/blob/franklin/ckpt/image_rl/janus_sft/test
 
 torchrun --standalone --nnodes=1 --nproc_per_node=$nproc_per_node \
      -m verl.trainer.img_rl_fsdp_sft_trainer \

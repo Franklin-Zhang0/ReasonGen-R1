@@ -100,6 +100,3 @@ python3 -m verl.trainer.image_generation_rl \
     img_saving.num=16 \
     reward_model.rollout.prompt_length=1536 \
     reward_model.rollout.max_num_batched_tokens=8192
-
-python ~/thinking.py > /dev/null 2>&1
-python ~/thinking.py > /dev/null 2>&1
