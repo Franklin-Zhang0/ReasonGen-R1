@@ -98,11 +98,10 @@ bash Image-RL/Janus/janus_rl.py
 ```
 
 
-## 4. License
+## 5. Acknowledgements
+We would like to thank <a href="https://github.com/volcengine/verl">Verl</a>, upon which our repo is built.
 
-This code repository is licensed under [the MIT License](https://github.com/deepseek-ai/DeepSeek-LLM/blob/HEAD/LICENSE-CODE). 
-
-## 5. Citation
+## 4. Citation
 
 ```bibtex
 @article{yu2025reasongen,
@@ -111,5 +110,4 @@ This code repository is licensed under [the MIT License](https://github.com/deep
   journal={xxxxxx},
   year={2025}
 }
-
 ```
