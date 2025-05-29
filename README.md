@@ -26,10 +26,9 @@
 <p align="center">
   <a href="#2-model-download"><b>📥 Model Download</b></a> |
   <a href="#3-quick-start"><b>⚡ Quick Start</b></a> |
-  <a href="#4-license"><b>📜 License</b></a> |
+  <a href="#4-acknowledgements"><b>📜 Acknowledgement</b></a> |
   <a href="#5-citation"><b>📖 Citation</b></a> <br>
   📄 <a href="xxxxxx"><b>Paper Link</b></a>
-  <!-- 🤗 Online Demo (<a href="https://huggingface.co/spaces/deepseek-ai/Janus-Pro-7B"><b>Janus-Pro-7B</b></a>, <a href="https://huggingface.co/spaces/deepseek-ai/Janus-1.3B"><b>Janus</b></a>, <a href="https://huggingface.co/spaces/deepseek-ai/JanusFlow-1.3B"><b>JanusFlow</b></a>) -->
 </p>
 
 ## 1. Introduction
@@ -47,11 +46,6 @@ Evaluations on Geneval, DPG, and the T2I benchmark demonstrate that ReasonGen-R1
  
 
 ## 2. Model Download
-
-We release ReasonGen-R1 to the public to support a broader and more diverse range of research within both academic and commercial communities.
-Please note that the use of this model is subject to the terms outlined in [License section](#5-license). Commercial usage is
-permitted under these terms.
-
 ### Huggingface
 
 | Model                 | Download                                                                    |
@@ -154,10 +148,10 @@ bash Image-RL/Janus/janus_rl.py
 ```
 
 
-## 5. Acknowledgements
+## 4. Acknowledgements
 We would like to thank <a href="https://github.com/volcengine/verl">Verl</a>, upon which our repo is built.
 
-## 4. Citation
+## 5. Citation
 
 ```bibtex
 @article{yu2025reasongen,
