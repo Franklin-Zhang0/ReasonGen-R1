@@ -70,7 +70,7 @@ conda create -n image_rl python==3.12 -y
 conda activate image_rl
 pip3 install torch==2.6.0 torchvision --index-url https://download.pytorch.org/whl/cu124
 pip3 install flash-attn --no-build-isolation
-git clone https://github.com/Franklin-Zhang0/Image-RL.git
+git clone https://github.com/Franklin-Zhang0/ReasonGen-R1.git
 cd Image-RL
 pip install -r requirements.txt
 pip install -e .
