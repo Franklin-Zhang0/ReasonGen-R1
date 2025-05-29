@@ -40,7 +40,7 @@ python3 -m verl.trainer.image_generation_rl \
     data.val_files="[examples/rl_prompts/geneval_val.txt,examples/rl_prompts/dpg_val.txt,examples/rl_prompts/t2i_val.txt]" \
     data.num_val_samples=256 \
     data.system_prompt="$SYSTEM_PROMPT" \
-    data.train_batch_size=32 \
+    data.train_batch_size=8 \
     data.max_prompt_length=156 \
     data.max_response_length=1024 \
     data.filter_overlong_prompts=True \
@@ -49,7 +49,7 @@ python3 -m verl.trainer.image_generation_rl \
     actor_rollout_ref.model.path=$MODEL_PATH \
     actor_rollout_ref.actor.optim.lr=5e-6 \
     actor_rollout_ref.model.use_remove_padding=False \
-    actor_rollout_ref.actor.ppo_mini_batch_size=16 \
+    actor_rollout_ref.actor.ppo_mini_batch_size=8 \
     actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.actor.use_kl_loss=False \
     actor_rollout_ref.actor.kl_loss_coef=0.00 \
@@ -77,7 +77,7 @@ python3 -m verl.trainer.image_generation_rl \
     algorithm.filter_groups.enable=True \
     algorithm.filter_groups.max_num_gen_batches=8 \
     trainer.critic_warmup=0 \
-    trainer.logger=['console','wandb'] \
+    trainer.logger=['console'] \
     +trainer.val_before_train=False \
     trainer.project_name=$PROJ_NAME \
     trainer.experiment_name=$RUN_NAME \

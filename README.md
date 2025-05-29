@@ -68,6 +68,9 @@ permitted under these terms.
 You can install the necessary dependencies by running the following command:
 
 ```shell
+cd ~
+mkdir project
+cd project
 conda create -n image_rl python==3.12 -y
 conda activate image_rl
 pip3 install torch==2.6.0 torchvision --index-url https://download.pytorch.org/whl/cu124
@@ -78,6 +81,59 @@ pip install -r requirements.txt
 pip install -e .
 pip install -e ./Janus
 ```
+
+<details>
+<summary><h3>Evaluation Environment Installation (Optional)</h3></summary>
+If you want to run the evaluation code, you can install the evaluation environment by running the following commands:
+
+```shell
+# Geneval
+cd ~
+mkdir project
+cd project
+git clone https://github.com/djghosh13/geneval.git
+cd geneval
+conda deactivate
+conda create -n geneval python=3.9 -y
+conda activate geneval
+pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1
+pip install mmcv-full==1.7.0 -f https://download.openmmlab.com/mmcv/dist/cu117/torch1.13/index.html
+pip install mmengine==0.7.3
+
+pip install pandas
+pip install numpy==1.23.1
+
+pip install open-clip-torch
+pip install clip-benchmark
+
+git clone https://github.com/open-mmlab/mmdetection.git
+cd mmdetection; git checkout 2.x
+pip install -v -e .
+
+cd ../
+bash ./evaluation/download_models.sh "./models"
+```
+
+```shell
+# DPG
+cd ~
+cd project
+git clone https://github.com/TencentQQGYLab/ELLA.git
+cd ELLA
+cp ~/project/ReasonGen-R1/requirements-for-dpg_bench.txt .
+conda deactivate
+conda create -n dpg_test python=3.9 -y
+conda activate dpg_test
+conda install conda-forge::fairseq -y
+pip install -r requirements-for-dpg_bench.txt
+```
+
+Once the eval environment is setup, you can use the following commands to run the evaluation:
+```shell
+bash -i benchmark/geneval.sh
+bash -i benchmark/dpg_eval.sh
+```
+</details>
 
 ### Inference
 To inference with the ReasonGen-R1 model, you can use the following command:
