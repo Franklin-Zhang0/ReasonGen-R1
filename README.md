@@ -32,6 +32,10 @@
   📄 <a href="xxxxxx"><b>Paper Link</b></a>
 </p>
 
+<div align="center">
+<img alt="image" src="images/benchmark_and_comparison_white_bg.png" style="width:90%; margin-top: 10px;">
+</div>
+
 ## 1. Introduction
 
 Although chain-of-thought (CoT) reasoning and reinforcement learning (RL) have driven breakthroughs in NLP, their integration into generative vision models remains underexplored. We introduce ReasonGen-R1, a two-stage framework that first imbues an autoregressive image generator with explicit text-based “thinking” skills via supervised fine-tuning (SFT) on a newly generated reasoning dataset of written rationales, and then refines its outputs using Generation-Reward Proximal Optimization (GRPO).
@@ -41,8 +45,6 @@ Evaluations on Geneval, DPG, and the T2I benchmark demonstrate that ReasonGen-R1
 
 <div align="center">
 <img alt="image" src="images/model_structure_white_bg.png" style="width:90%;">
-<br>
-<img alt="image" src="images/benchmark_and_comparison_white_bg.png" style="width:90%; margin-top: 10px;">
 </div>
  
 
