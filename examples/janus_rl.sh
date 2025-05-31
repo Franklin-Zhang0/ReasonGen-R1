@@ -85,7 +85,7 @@ python3 -m verl.trainer.image_generation_rl \
     trainer.nnodes=1 \
     trainer.save_freq=100 \
     trainer.test_freq=25 \
-    trainer.total_epochs=5 \
+    trainer.total_epochs=1 \
     trainer.max_steps=400 \
     trainer.resume_mode=disable \
     trainer.default_local_dir=$SAVE_DIR \
