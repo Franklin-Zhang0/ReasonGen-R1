@@ -26,7 +26,7 @@ os.makedirs(output_path, exist_ok=True)
 
 template = "A photo of {}. Output a richly detailed prompt: "
 
-prompt = "A digitally rendered image of the iconic Monalisa capturing a selfie, boasting 8K resolution and hyper-realistic details that highlight the delicate textures of her skin and the intricate fibers of her clothing. The scene is illuminated with cinematic lighting that casts soft shadows and enhances the depth of field, giving a three-dimensional quality to the image. The background is blurred artfully, drawing full attention to her enigmatic expression and the modern device in her hands, all created with the precision of an Octane render engine."
+prompt = "a train left of a broccoli"
 conversation = [
     {
         "role": "<|User|>",

@@ -73,7 +73,7 @@ conda activate image_rl
 pip3 install torch==2.6.0 torchvision --index-url https://download.pytorch.org/whl/cu124
 pip3 install flash-attn --no-build-isolation
 git clone https://github.com/Franklin-Zhang0/ReasonGen-R1.git
-cd Image-RL
+cd ReasonGen-R1
 pip install -r requirements.txt
 pip install -e .
 pip install -e ./Janus
@@ -90,7 +90,6 @@ mkdir project
 cd project
 git clone https://github.com/djghosh13/geneval.git
 cd geneval
-conda deactivate
 conda create -n geneval python=3.9 -y
 conda activate geneval
 pip install torch==1.13.1 torchvision==0.14.1 torchaudio==0.13.1
@@ -117,8 +116,7 @@ cd ~
 cd project
 git clone https://github.com/TencentQQGYLab/ELLA.git
 cd ELLA
-cp ~/project/ReasonGen-R1/requirements-for-dpg_bench.txt .
-conda deactivate
+cp ~/project/ReasonGen-R1/benchmark/requirements-for-dpg_bench.txt .
 conda create -n dpg_test python=3.9 -y
 conda activate dpg_test
 conda install conda-forge::fairseq -y
@@ -135,19 +133,19 @@ bash -i benchmark/dpg_eval.sh
 ### Inference
 To inference with the ReasonGen-R1 model, you can use the following command:
 ```shell
-python Image-RL/Janus/cot_generate_inference.py
+python ReasonGen-R1/Janus/cot_generate_inference.py
 ```
 
 ### SFT Training
 To train the SFT model from Janus-Pro-7B model on the ReasonGen-R1-SFT-200k dataset, you can use the following command:
 ```shell
-bash Image-RL/examples/janus_sft.sh
+bash ReasonGen-R1/examples/janus_sft.sh
 ```
 
 ### RL Training
 To train the RL model from the ReasonGen-R1-SFT model, you can use the following command:
 ```shell
-bash Image-RL/Janus/janus_rl.py
+bash ReasonGen-R1/Janus/janus_rl.py
 ```
 
 
@@ -163,3 +161,13 @@ We would like to thank <a href="https://github.com/volcengine/verl">Verl</a>, up
   year={2025}
 }
 ```
+
+## 6. More Examples
+<div align="center">
+<img alt="image" src="images/example0.png" style="width:90%;">
+<img alt="image" src="images/example1.png" style="width:90%;">
+<img alt="image" src="images/example2.png" style="width:90%;">
+<img alt="image" src="images/example3.png" style="width:90%;">
+<img alt="image" src="images/example4.png" style="width:90%;">
+
+</div>
