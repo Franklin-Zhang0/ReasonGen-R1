@@ -29,7 +29,7 @@
   <a href="#3-quick-start"><b>⚡ Quick Start</b></a> |
   <a href="#4-acknowledgements"><b>📜 Acknowledgement</b></a> |
   <a href="#5-citation"><b>📖 Citation</b></a> <br>
-  📄 <a href="xxxxxx"><b>Paper Link</b></a>
+  📄 <a href="http://arxiv.org/abs/2505.24875"><b>Paper Link</b></a>
 </p>
 
 <div align="center">
