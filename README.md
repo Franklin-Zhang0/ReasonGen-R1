@@ -155,11 +155,14 @@ We would like to thank <a href="https://github.com/volcengine/verl">Verl</a>, up
 ## 5. Citation
 
 ```bibtex
-@article{yu2025reasongen,
-  title={ReasonGen-R1: Cot for Autoregressive Image generation models through SFT and RL},
-  author={Yu Zhang, Yunqi Li, Yifan Yang, Rui Wang， Yuqin Yang, Qi Dai, Jianming Bao, Dongdong Chen, Chong Luo, Lili Qiu},
-  journal={arXiv preprint arXiv:2505.24875},
-  year={2025}
+@misc{zhang2025reasongenr1cotautoregressiveimage,
+      title={ReasonGen-R1: CoT for Autoregressive Image generation models through SFT and RL}, 
+      author={Yu Zhang and Yunqi Li and Yifan Yang and Rui Wang and Yuqing Yang and Dai Qi and Jianmin Bao and Dongdong Chen and Chong Luo and Lili Qiu},
+      year={2025},
+      eprint={2505.24875},
+      archivePrefix={arXiv},
+      primaryClass={cs.CV},
+      url={https://arxiv.org/abs/2505.24875}, 
 }
 ```
 
