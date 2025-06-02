@@ -158,6 +158,7 @@ We would like to thank <a href="https://github.com/volcengine/verl">Verl</a>, up
 @article{yu2025reasongen,
   title={ReasonGen-R1: Cot for Autoregressive Image generation models through SFT and RL},
   author={Yu Zhang, Yunqi Li, Yifan Yang, Rui Wang， Yuqin Yang, Qi Dai, Jianming Bao, Dongdong Chen, Chong Luo, Lili Qiu},
+  journal={arXiv preprint arXiv:2505.24875},
   year={2025}
 }
 ```
