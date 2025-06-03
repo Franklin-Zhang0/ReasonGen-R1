@@ -25,7 +25,7 @@
 
 
 <p align="center">
-  <a href="#2-model-download"><b>📥 Model Download</b></a> |
+  <a href="#2-model-and-dataset-download"><b>📥 Model and Dataset Download</b></a> |
   <a href="#3-quick-start"><b>⚡ Quick Start</b></a> |
   <a href="#4-acknowledgements"><b>📜 Acknowledgement</b></a> |
   <a href="#5-citation"><b>📖 Citation</b></a> <br>
@@ -48,13 +48,17 @@ Evaluations on Geneval, DPG, and the T2I benchmark demonstrate that ReasonGen-R1
 </div>
  
 
-## 2. Model Download
+## 2. Model and Dataset Download
 ### Huggingface
 
 | Model                 | Download                                                                    |
 |-----------------------|-----------------------------------------------------------------------------|
 | ReasonGen-R1 | [🤗 Hugging Face](https://huggingface.co/Franklin0/ReasonGen-R1) |
 | ReasonGen-R1-SFT-Only | [🤗 Hugging Face](https://huggingface.co/Franklin0/ReasonGen-R1-SFT) |
+
+| Dataset               | Download                                                                    |
+|-----------------------|-----------------------------------------------------------------------------|
+| ReasonGen-R1-Datasets | [🤗 Hugging Face](https://huggingface.co/collections/Franklin0/reasongen-r1-6836ed61fc4f6db543c0d368) |
 
 
 
