@@ -34,7 +34,7 @@ for name in "${model_name_list[@]}"; do
     echo ""
     CUDA_VISIBLE_DEVICES=$cnt python "$HOME_PATH/project/geneval/evaluation/evaluate_images.py" \
         "$HOME_PATH/project/Image-RL/geneval_out_result/geneval_output_${name}" \
-        --outfile "~/expdata/geneval_out_result/results_output_${name}.jsonl" \
+        --outfile "$HOME_PATH/expdata/geneval_out_result/results_output_${name}.jsonl" \
         --model-path "$HOME_PATH/project/geneval/models" &
     cnt=$((cnt + 1))
     if [ $cnt -eq 1 ]; then
@@ -51,7 +51,7 @@ conda activate geneval
 for name in "${all_model_name_list[@]}"; do
     echo ""
     echo "Result of ${name}"
-    python $HOME_PATH/project/geneval/evaluation/summary_scores.py "~/expdata/geneval_out_result/results_output_${name}.jsonl"
+    python $HOME_PATH/project/geneval/evaluation/summary_scores.py "$HOME_PATH/expdata/geneval_out_result/results_output_${name}.jsonl"
     echo "====================="
     echo ""
 done
