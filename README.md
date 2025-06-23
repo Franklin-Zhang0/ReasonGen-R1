@@ -149,7 +149,7 @@ bash ReasonGen-R1/examples/janus_sft.sh
 ### RL Training
 To train the RL model from the ReasonGen-R1-SFT model, you can use the following command:
 ```shell
-bash ReasonGen-R1/Janus/janus_rl.py
+bash ReasonGen-R1/Janus/janus_rl.sh
 ```
 
 
