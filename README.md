@@ -75,7 +75,7 @@ cd project
 conda create -n image_rl python==3.12 -y
 conda activate image_rl
 pip3 install torch==2.6.0 torchvision --index-url https://download.pytorch.org/whl/cu124
-pip3 install flash-attn --no-build-isolation
+pip3 install flash-attn==2.7.4.post1 --no-build-isolation
 git clone https://github.com/Franklin-Zhang0/ReasonGen-R1.git
 cd ReasonGen-R1
 pip install -r requirements.txt
